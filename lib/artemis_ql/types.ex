@@ -16,8 +16,9 @@ defmodule ArtemisQL.Types do
 
   alias ArtemisQL.SearchMap
 
-  @type partial_time :: {:partial_time, {hour::integer, minute::integer}}
-                        | {:partial_time, {hour::integer}}
+  @type partial_time ::
+    {:partial_time, {hour::integer, minute::integer}}
+    | {:partial_time, {hour::integer}}
 
   @doc """
   Attempts to whitelist the given key against the search_map, if the key is not in the map
@@ -43,8 +44,41 @@ defmodule ArtemisQL.Types do
     end
   end
 
+  def whitelist_key(
+    key,
+    search_map
+  ) when is_binary(key) and is_atom(search_map) and not is_boolean(search_map) do
+    case apply(search_map, :key_whitelist, [key]) do
+      nil ->
+        :missing
+
+      false ->
+        :skip
+
+      true ->
+        {:ok, String.to_existing_atom(key)}
+
+      key when is_atom(key) ->
+        {:ok, key}
+    end
+  end
+
   def transform_pair(key, value, %SearchMap{} = search_map) when is_atom(key) do
     handle_pair_transform(search_map.pair_transform[key], key, value)
+  end
+
+  def transform_pair(
+    key,
+    value,
+    search_map
+  ) when is_atom(key) and is_atom(search_map) and not is_boolean(search_map) do
+    case apply(search_map, :pair_transform, [key, value]) do
+      {:ok, _key, _value} = res ->
+        res
+
+      other ->
+        handle_pair_transform(other, key, value)
+    end
   end
 
   def handle_pair_transform(type, key, {:group, [item]}) do
@@ -255,12 +289,13 @@ defmodule ArtemisQL.Types do
 
       {:error, _} ->
         case str do
-          <<year::binary-size(4), "-",
+          <<
+            year::binary-size(4), "-",
             month::binary-size(2), "-",
             day::binary-size(2), "T",
-            rest::binary>> ->
+            rest::binary
+          >> ->
             {:partial_naive_datetime, parse_date("#{year}-#{month}-#{day}"), parse_time(rest)}
-
 
           _ ->
             case Regex.scan(~r/\A(\d+)(:\d+){1,2}/, str) do
@@ -296,10 +331,12 @@ defmodule ArtemisQL.Types do
 
           {:error, _} ->
             case str do
-              <<year::binary-size(4), "-",
+              <<
+                year::binary-size(4), "-",
                 month::binary-size(2), "-",
                 day::binary-size(2), "T",
-                rest::binary>> ->
+                rest::binary
+              >> ->
                 {:partial_datetime, parse_date("#{year}-#{month}-#{day}"), parse_time(rest)}
 
               _ ->

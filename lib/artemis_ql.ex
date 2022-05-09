@@ -184,7 +184,7 @@ defmodule ArtemisQL do
   @spec encode(ArtemisQL.Decoder.search_list()) :: String.t()
   defdelegate encode(tokens), to: ArtemisQL.Encoder
 
-  @spec to_ecto_query(Ecto.Query.t(), binary(), ArtemisQL.SearchMap.t(), Keyword.t()) ::
+  @spec to_ecto_query(Ecto.Query.t(), binary(), ArtemisQL.SearchMap.search_map(), Keyword.t()) ::
           Ecto.Query.t() | ArtemisQL.Ecto.QueryTransformer.abort_result()
   def to_ecto_query(query, binary, search_map, options \\ [])
 
@@ -198,8 +198,6 @@ defmodule ArtemisQL do
     end
   end
 
-  @spec to_ecto_query(Ecto.Query.t(), any(), ArtemisQL.SearchMap.t(), Keyword.t()) ::
-          Ecto.Query.t() | ArtemisQL.Ecto.QueryTransformer.abort_result()
   defdelegate to_ecto_query(query, list, search_map, options), to: ArtemisQL.Ecto.QueryTransformer
 
   def to_ecto_query!(query, binary, search_map, options \\ []) do

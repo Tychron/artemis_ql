@@ -1,14 +1,12 @@
 defmodule ArtemisQL.Ecto.Filters.Plain do
   import Ecto.Query
   import ArtemisQL.Types
+  import ArtemisQL.Ecto.Util
 
   #
   # Scalars
   #
   @scalars [:binary_id, :integer, :float, :atom, :string, :decimal, :boolean]
-
-  @sql_wildcard "%"
-  @sql_any_char "_"
 
   def apply_type_filter(_type, query, key, nil) do
     query
@@ -93,20 +91,7 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
   end
 
   def apply_type_filter(type, query, key, {:cmp, {operator, {:partial, items}}}) when type in [:integer, :string] do
-    value =
-      Enum.map(items, fn
-        :wildcard ->
-          @sql_wildcard
-
-        :any_char ->
-          @sql_any_char
-
-        {:value, val} when is_integer(val) or is_binary(val) ->
-          val
-          |> to_string()
-      end)
-
-    pattern = IO.iodata_to_binary(value)
+    pattern = partial_to_like_pattern(items)
 
     case operator do
       op when op in [:lt, :gt, :neq] ->
@@ -182,39 +167,14 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
   end
 
   def apply_type_filter(:integer, query, key, {:partial, elements}) do
-    value =
-      Enum.map(elements, fn
-        :wildcard ->
-          @sql_wildcard
-
-        :any_char ->
-          @sql_any_char
-
-        {:value, num} when is_integer(num) ->
-          num
-          |> Integer.to_string()
-      end)
-
-    pattern = IO.iodata_to_binary(value)
+    pattern = partial_to_like_pattern(elements)
 
     query
     |> where([m], fragment("?::text ILIKE ?", field(m, ^key), ^pattern))
   end
 
   def apply_type_filter(:string, query, key, {:partial, elements}) do
-    value =
-      Enum.map(elements, fn
-        :wildcard ->
-          @sql_wildcard
-
-        :any_char ->
-          @sql_any_char
-
-        {:value, str} when is_binary(str) ->
-          escape_string_for_like(str)
-      end)
-
-    pattern = IO.iodata_to_binary(value)
+    pattern = partial_to_like_pattern(elements)
 
     query
     |> where([m], fragment("? ILIKE ?", field(m, ^key), ^pattern))

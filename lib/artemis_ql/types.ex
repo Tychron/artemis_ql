@@ -522,13 +522,6 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def escape_string_for_like(str) when is_binary(str) do
-    str
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
-  end
-
   #
   # Casts
   #

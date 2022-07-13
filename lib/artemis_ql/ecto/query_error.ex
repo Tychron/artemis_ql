@@ -16,4 +16,10 @@ defmodule ArtemisQL.Ecto.QueryError do
     `#{value}` is not a valid value for #{key}
     """
   end
+
+  def message(%__MODULE__{reason: :keyword_required}) do
+    """
+    A keyword pair is required for this search.
+    """
+  end
 end

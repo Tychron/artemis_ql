@@ -200,6 +200,20 @@ defmodule ArtemisQL do
     String.t()
   defdelegate encode(tokens, options \\ []), to: ArtemisQL.Encoder
 
+  @spec cast_query_list(list() | String.t(), Keyword.t()) ::
+    {:ok, ArtemisQL.Mapper.query_list()}
+    | {:error, any()}
+  defdelegate cast_query_list(list, options \\ []), to: ArtemisQL.Mapper
+
+  @spec query_list_to_search_list(ArtemisQL.Mapper.query_list(), Keyword.t()) ::
+    {:ok, ArtemisQL.Decoder.tokens()}
+    | {:error, any()}
+  defdelegate query_list_to_search_list(list, options \\ []), to: ArtemisQL.Mapper
+
+  @spec search_list_to_query_list(ArtemisQL.Decoder.tokens(), Keyword.t()) ::
+    {:ok, ArtemisQL.Mapper.query_list()}
+    | {:error, any()}
+  defdelegate search_list_to_query_list(list, options \\ []), to: ArtemisQL.Mapper
 
   @spec to_ecto_query(Ecto.Query.t(), binary(), ArtemisQL.SearchMap.search_map(), Keyword.t()) ::
     Ecto.Query.t()

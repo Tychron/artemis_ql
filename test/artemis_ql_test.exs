@@ -17,6 +17,9 @@ defmodule ArtemisQLTest do
       assert encoding_cycle(
         "* a:* b:? c:Abc* d:*Xyz e:Abc? f:?Xyz g:*Abc* h:?Xyz?"
       )
+      assert encoding_cycle(
+        "a:=2 b:!3 c:>=4 d:>5 e:<=6 f:<7"
+      )
     end
   end
 

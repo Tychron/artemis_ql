@@ -17,7 +17,7 @@ defmodule ArtemisQL.QueryTransformerTest do
     end
   end
 
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   defmodule TestSearchMap do
     use ArtemisQL.SearchMap
@@ -205,6 +205,14 @@ for type <- [:struct, :module] do
       assert %Ecto.Query{} = query
     end
   end
+
+  describe "(#{type}) field type fuzzing" do
+    for {field_key, {:type, field_type}} <- @search_map.pair_transform do
+      test "fuzz field #{field_key} of type #{field_type}" do
+        fuzz_field(unquote(field_key), get_search_map(unquote(type)))
+      end
+    end
+  end
 end
 
   defp get_search_map(:module) do
@@ -213,5 +221,114 @@ end
 
   defp get_search_map(:struct) do
     @search_map
+  end
+
+  defp fuzz_field(key, search_map) do
+    fuzz_field_nullability(key, search_map)
+    fuzz_field_nullability_comparison(key, search_map)
+    fuzz_field_comparison(key, search_map)
+    fuzz_field_partial(key, search_map)
+  end
+
+  defp fuzz_field_nullability(key, search_map) do
+    search_list = [
+      {:pair, {{:word, to_string(key)}, :NULL}}
+    ]
+
+    query =
+      QuerySchema
+      |> ArtemisQL.to_ecto_query(search_list, search_map)
+
+    assert %Ecto.Query{} = query
+  end
+
+  defp fuzz_field_nullability_comparison(key, search_map) do
+    for op <- [:eq, :neq, :lt, :lte, :gt, :gte] do
+      search_list = [
+        {
+          :pair,
+          {
+            {:word, to_string(key)},
+            {:cmp, {
+              op,
+              :NULL
+            }}
+          }
+        }
+      ]
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(search_list, search_map)
+
+      assert %Ecto.Query{} = query
+    end
+  end
+
+  defp fuzz_field_comparison(key, search_map) do
+    for op <- [nil, :eq, :neq, :lt, :lte, :gt, :gte] do
+      {:type, type} = @search_map.pair_transform[key]
+      {:ok, value} = ArtemisQL.Encoder.encode_value(ArtemisQL.Random.random_value_of_type(type))
+
+      {:ok, search_list} = ArtemisQL.query_list_to_search_list([
+        %{
+          key: to_string(key),
+          op: op,
+          value: value
+        }
+      ])
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(search_list, search_map)
+
+      assert %Ecto.Query{} = query
+    end
+  end
+
+  defp fuzz_field_partial(key, search_map) do
+    {:type, type} = @search_map.pair_transform[key]
+
+    {:ok, value} =
+      ArtemisQL.Encoder.encode_value(case type do
+        :date ->
+          ArtemisQL.Random.random_partial_date()
+
+        :time ->
+          ArtemisQL.Random.random_partial_time()
+
+        :utc_datetime ->
+          ArtemisQL.Random.random_partial_datetime()
+
+        :naive_datetime ->
+          ArtemisQL.Random.random_partial_naive_datetime()
+
+        :string ->
+          ArtemisQL.Random.random_wildcard_partial(100)
+
+        scalar when scalar in [:boolean, :integer, :float, :decimal, :binary_id] ->
+          ArtemisQL.Random.random_value_of_type(type)
+      end)
+
+    {:ok, search_list} = ArtemisQL.query_list_to_search_list([
+      %{
+        key: to_string(key),
+        value: case type do
+          :string ->
+            %{
+              :"$partial" => value,
+            }
+
+          _ ->
+            value
+        end
+      }
+    ])
+
+    query =
+      QuerySchema
+      |> ArtemisQL.to_ecto_query(search_list, search_map)
+
+    assert %Ecto.Query{} = query
   end
 end

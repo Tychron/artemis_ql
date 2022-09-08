@@ -79,24 +79,41 @@ defmodule ArtemisQL.Mapper do
   end
 
   defp do_query_list_to_search_list([qi | rest], {idx, acc}, options) when is_map(qi) do
-    case value_to_search_term(qi.value, options) do
+    case value_to_search_term(qi[:value], options) do
       {:ok, val} ->
-        case Map.get(qi, :key) do
-          nil ->
-            do_query_list_to_search_list(rest, {idx + 1, [val | acc]}, options)
+        val =
+          case qi[:op] do
+            nil ->
+              val
 
-          key ->
-            case value_to_search_term(key, options) do
-              {:ok, {type, _} = key} when type in [:word, :quote] ->
-                res = {:pair, {key, val}}
-                do_query_list_to_search_list(rest, {idx + 1, [res | acc]}, options)
+            op when op in [:eq, :neq, :gt, :gte, :lt, :lte, :in] ->
+              {:cmp, {op, val}}
+          end
 
-              {:ok, _} ->
-                {:error, {:bad_query_list_item, {idx, {:invalid_key, {key, :unexpected}}}}}
+        result =
+          case qi[:key] do
+            nil ->
+              {:ok, val}
 
-              {:error, reason} ->
-                {:error, {:bad_query_list_item, {idx, {:invalid_key, {key, reason}}}}}
-            end
+            key ->
+              case value_to_search_term(key, options) do
+                {:ok, {type, _} = key} when type in [:word, :quote] ->
+                  {:ok, {:pair, {key, val}}}
+
+                {:ok, _} ->
+                  {:error, {:bad_query_list_item, {idx, {:invalid_key, {key, :unexpected}}}}}
+
+                {:error, reason} ->
+                  {:error, {:bad_query_list_item, {idx, {:invalid_key, {key, reason}}}}}
+              end
+          end
+
+        case result do
+          {:ok, res} ->
+            do_query_list_to_search_list(rest, {idx + 1, [res | acc]}, options)
+
+          {:error, _} = err ->
+            err
         end
 
       {:error, reason} ->

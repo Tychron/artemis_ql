@@ -10,6 +10,68 @@ defmodule ArtemisQL.Encoder do
     do_encode(tokens, [], options)
   end
 
+  def encode_value(nil) do
+    {:ok, :NULL}
+  end
+
+  def encode_value({:partial, list}) do
+    {:ok, Enum.map(list, fn
+      :wildcard ->
+        %{:"$wildcard" => true}
+
+      :any_char ->
+        %{:"$any_char" => true}
+
+      str when is_binary(str) ->
+        str
+    end)}
+  end
+
+  def encode_value(bool) when is_boolean(bool) do
+    {:ok, to_string(bool)}
+  end
+
+  def encode_value(val) when is_number(val) do
+    {:ok, to_string(val)}
+  end
+
+  def encode_value(%st{} = val) when st in [Time, Date, DateTime, NaiveDateTime] do
+    {:ok, st.to_iso8601(val)}
+  end
+
+  def encode_value(%Decimal{} = dec) do
+    {:ok, Decimal.to_string(dec, :normal)}
+  end
+
+  def encode_value({:partial_time, {hour}}) do
+    {:ok, String.pad_leading(to_string(hour), 2, "0")}
+  end
+
+  def encode_value({:partial_time, {hour, minute}}) do
+    {:ok, String.pad_leading(to_string(hour), 2, "0") <> ":" <>
+          String.pad_leading(to_string(minute), 2, "0")}
+  end
+
+  def encode_value({:partial_date, {year}}) do
+    {:ok, String.pad_leading(to_string(year), 4, "0")}
+  end
+
+  def encode_value({:partial_date, {year, month}}) do
+    {:ok, String.pad_leading(to_string(year), 4, "0") <> "-" <>
+          String.pad_leading(to_string(month), 2, "0")}
+  end
+
+  def encode_value({part, date, time}) when part in [:partial_datetime, :partial_naive_datetime] do
+    {:ok, date} = encode_value(date)
+    {:ok, time} = encode_value(time)
+
+    {:ok, date <> "T" <> time}
+  end
+
+  def encode_value(val) when is_binary(val) do
+    {:ok, val}
+  end
+
   defp do_encode([], acc, options) do
     blob =
       acc

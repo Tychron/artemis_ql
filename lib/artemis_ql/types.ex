@@ -16,9 +16,19 @@ defmodule ArtemisQL.Types do
 
   alias ArtemisQL.SearchMap
 
+  @type partial_date ::
+    {:partial_date, {year::integer(), month::integer()}}
+    | {:partial_date, {year::integer()}}
+
   @type partial_time ::
     {:partial_time, {hour::integer, minute::integer}}
     | {:partial_time, {hour::integer}}
+
+  @type partial_datetime ::
+    {:partial_datetime, Date.t(), partial_time()}
+
+  @type partial_naive_datetime ::
+    {:partial_naive_datetime, Date.t(), partial_time()}
 
   @doc """
   Attempts to whitelist the given key against the search_map, if the key is not in the map

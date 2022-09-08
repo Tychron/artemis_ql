@@ -145,13 +145,38 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp value_to_search_term(%{:"$partial" => list}, _options) when is_list(list) do
+  defp value_to_search_term(%{:"$wildcard" => _}, _options) do
+    {:ok, :wildcard}
+  end
+
+  defp value_to_search_term(%{:"$any_char" => _}, _options) do
+    {:ok, :any_char}
+  end
+
+  defp value_to_search_term(%{:"$infinity" => _}, _options) do
+    {:ok, :infinity}
+  end
+
+  defp value_to_search_term(%{:"$range" => [a, b]}, options) do
+    with \
+      {:ok, a} <- value_to_search_term(a, options),
+      {:ok, b} <- value_to_search_term(b, options)
+    do
+      {:ok, {:range, {a, b}}}
+    else
+      {:error, reason} ->
+        {:error, {:bad_range, reason}}
+    end
+  end
+
+  defp value_to_search_term(%{:"$partial" => list}, options) when is_list(list) do
     result =
-      Enum.reduce_while(list, {:ok, []}, fn
-        {:"$wildcard", _}, {:ok, acc} ->
+      list
+      |> Enum.reduce_while({:ok, []}, fn
+        %{:"$wildcard" => _}, {:ok, acc} ->
           {:cont, {:ok, [:wildcard | acc]}}
 
-        {:"$any_char", _}, {:ok, acc} ->
+        %{:"$any_char" => _}, {:ok, acc} ->
           {:cont, {:ok, [:any_char | acc]}}
 
         :wildcard, {:ok, acc} ->
@@ -160,14 +185,17 @@ defmodule ArtemisQL.Mapper do
         :any_char, {:ok, acc} ->
           {:cont, {:ok, [:any_char | acc]}}
 
-        value, {:ok, acc} when is_binary(value) ->
-          {:cont, {:ok, [{:quote, value} | acc]}}
+        value, {:ok, acc} when is_binary(value) or is_number(value) ->
+          case value_to_search_term(value, options) do
+            {:ok, token} ->
+              {:cont, {:ok, [token | acc]}}
 
-        number, {:ok, acc} when is_number(number) ->
-          {:cont, {:ok, [{:word, to_string(number)} | acc]}}
+            {:error, reason} ->
+              {:halt, {:bad_partial_segment, {value, reason}}}
+          end
 
         segment, {:ok, _acc} ->
-          {:halt, {:bad_partial_segment, segment}}
+          {:halt, {:bad_partial_segment, {segment, :unexpected}}}
       end)
 
     case result do
@@ -246,6 +274,18 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
+  defp do_search_item_term_to_query_item_term(:wildcard, _options) do
+    {:ok, %{:"$wildcard" => true}}
+  end
+
+  defp do_search_item_term_to_query_item_term(:any_char, _options) do
+    {:ok, %{:"$any_char" => true}}
+  end
+
+  defp do_search_item_term_to_query_item_term(:infinity, _options) do
+    {:ok, %{:"$infinity" => true}}
+  end
+
   defp do_search_item_term_to_query_item_term({:word, word}, _options) do
     {:ok, word}
   end
@@ -279,6 +319,20 @@ defmodule ArtemisQL.Mapper do
           :"$partial" => Enum.reverse(partial)
         }}
 
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  defp do_search_item_term_to_query_item_term({:range, {a, b}}, options) do
+    with \
+      {:ok, a} <- do_search_item_term_to_query_item_term(a, options),
+      {:ok, b} <- do_search_item_term_to_query_item_term(b, options)
+    do
+      {:ok, %{
+        :"$range" => [a, b]
+      }}
+    else
       {:error, _} = err ->
         err
     end

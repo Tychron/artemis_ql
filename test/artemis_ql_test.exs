@@ -8,7 +8,15 @@ defmodule ArtemisQLTest do
 
     test "can perform full encode/decode cycle" do
       assert encoding_cycle("a:2")
-      assert encoding_cycle("Term key:value key2:0 \"quoted key\":\"quoted value\"")
+      assert encoding_cycle(
+        "Term key:value key2:0 \"quoted key\":\"quoted value\" list:1,2,3 list_q:\"Hello World\",\"Goodbye Universe\""
+      )
+      assert encoding_cycle(
+        ".. a:x..y b:x.. c:..y d:.."
+      )
+      assert encoding_cycle(
+        "* a:* b:? c:Abc* d:*Xyz e:Abc? f:?Xyz g:*Abc* h:?Xyz?"
+      )
     end
   end
 

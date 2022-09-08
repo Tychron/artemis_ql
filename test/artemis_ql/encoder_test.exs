@@ -20,6 +20,9 @@ defmodule ArtemisQL.EncoderTest do
         k:Hello?Wor*
         l:X..Y
         m:"Take me".."To space"
+        n:..B
+        o:A..
+        p:..
         x:null y:true z:false
         X:NULL Y:TRUE Z:FALSE
         """)
@@ -43,6 +46,9 @@ defmodule ArtemisQL.EncoderTest do
             "k:Hello?Wor*",
             "l:X..Y",
             "m:\"Take me\"..\"To space\"",
+            "n:..B",
+            "o:A..",
+            "p:..",
             "x:NULL y:true z:false",
             "X:NULL Y:TRUE Z:FALSE",
           ]

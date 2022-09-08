@@ -204,14 +204,22 @@ defmodule ArtemisQL.DecoderTest do
     end
 
     test "can parse datetime ranges" do
+      # infinity range, useless but, it should work
+      assert {:ok, [
+        {:pair, {{:word, "inserted_at"}, {:range, {:infinity, :infinity}}}}
+      ], ""} == ArtemisQL.decode("inserted_at:..")
+
+      # start date to infinity
       assert {:ok, [
         {:pair, {{:word, "inserted_at"}, {:range, {{:quote, "2020-01-01T23:20:32"}, :infinity}}}}
       ], ""} == ArtemisQL.decode("inserted_at:\"2020-01-01T23:20:32\"..")
 
+      # infinty to end date
       assert {:ok, [
         {:pair, {{:word, "inserted_at"}, {:range, {:infinity, {:quote, "2020-01-01T21:20:32"}}}}}
       ], ""} == ArtemisQL.decode("inserted_at:..\"2020-01-01T21:20:32\"")
 
+      # date to date
       assert {:ok, [
         {:pair, {{:word, "inserted_at"}, {:range, {{:quote, "2020-01-01T18:20:32"}, {:quote, "2020-02-01T23:20:32"}}}}}
       ], ""} == ArtemisQL.decode("inserted_at:\"2020-01-01T18:20:32\"..\"2020-02-01T23:20:32\"")

@@ -14,6 +14,10 @@ defmodule ArtemisQL.MapperTest do
         g:"H*llo, "*"Wo?ld"
         h:1,2,3
         i:"Hello, World","What can I do?","But eat frogs."
+        j:A..B
+        k:A..
+        l:..B
+        m:..
         """)
 
       assert {:ok, query_list} =
@@ -69,6 +73,42 @@ defmodule ArtemisQL.MapperTest do
         %{
           key: "i",
           value: ["Hello, World", "What can I do?", "But eat frogs."],
+        },
+        %{
+          key: "j",
+          value: %{
+            :"$range" => [
+              "A",
+              "B",
+            ]
+          }
+        },
+        %{
+          key: "k",
+          value: %{
+            :"$range" => [
+              "A",
+              %{:"$infinity" => true},
+            ]
+          }
+        },
+        %{
+          key: "l",
+          value: %{
+            :"$range" => [
+              %{:"$infinity" => true},
+              "B",
+            ]
+          }
+        },
+        %{
+          key: "m",
+          value: %{
+            :"$range" => [
+              %{:"$infinity" => true},
+              %{:"$infinity" => true},
+            ]
+          }
         },
       ] == query_list
     end

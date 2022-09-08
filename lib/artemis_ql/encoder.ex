@@ -37,9 +37,32 @@ defmodule ArtemisQL.Encoder do
     "NULL"
   end
 
+  defp encode_term(:wildcard) do
+    "*"
+  end
+
+  defp encode_term(:any_char) do
+    "?"
+  end
+
   defp encode_term({:range, {s, e}}) do
-    s = encode_term(s)
-    e = encode_term(e)
+    s =
+      case s do
+        :infinity ->
+          ""
+
+        _ ->
+          encode_term(s)
+      end
+
+    e =
+      case e do
+        :infinity ->
+          ""
+
+        _ ->
+          encode_term(e)
+      end
 
     [s, "..", e]
   end

@@ -133,6 +133,14 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
+  defp decode_token([:range_op, :space | tokens]) do
+    {:ok, {:range, {:infinity, :infinity}}, tokens}
+  end
+
+  defp decode_token([:range_op]) do
+    {:ok, {:range, {:infinity, :infinity}}, []}
+  end
+
   defp decode_token([:range_op | tokens]) do
     case decode_value(tokens) do
       {:ok, value, tokens} ->

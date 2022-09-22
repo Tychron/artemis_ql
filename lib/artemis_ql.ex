@@ -178,14 +178,46 @@ defmodule ArtemisQL do
 
     value - a value is a word, pair, or quoted value
   """
-  @spec decode(String.t()) :: {:ok, any(), rest::String.t()} | {:error, any()}
+
+  @doc """
+  Decode a query string into a search list (i.e. tokens)
+
+  These tokens can be passed to ArtemisQL.to_ecto_query/3,4
+
+  Usage:
+
+      {:ok, search_list, "" = _rest} = ArtemisQL.decode("inserted_at:2022-09-07")
+
+      query = ArtemisQL.to_ecto_query!(query, search_list, search_map)
+
+  """
+  @spec decode(String.t()) ::
+    {:ok, ArtemisQL.Decoder.tokens(), rest::String.t()}
+    | {:error, any()}
   defdelegate decode(blob), to: ArtemisQL.Decoder
 
-  @spec encode(ArtemisQL.Decoder.search_list()) :: String.t()
-  defdelegate encode(tokens), to: ArtemisQL.Encoder
+  @spec encode(ArtemisQL.Decoder.search_list(), ArtemisQL.Encoder.encode_options()) ::
+    String.t()
+  defdelegate encode(tokens, options \\ []), to: ArtemisQL.Encoder
+
+  @spec cast_query_list(list() | String.t(), Keyword.t()) ::
+    {:ok, ArtemisQL.Mapper.query_list()}
+    | {:error, any()}
+  defdelegate cast_query_list(list, options \\ []), to: ArtemisQL.Mapper
+
+  @spec query_list_to_search_list(ArtemisQL.Mapper.query_list(), Keyword.t()) ::
+    {:ok, ArtemisQL.Decoder.tokens()}
+    | {:error, any()}
+  defdelegate query_list_to_search_list(list, options \\ []), to: ArtemisQL.Mapper
+
+  @spec search_list_to_query_list(ArtemisQL.Decoder.tokens(), Keyword.t()) ::
+    {:ok, ArtemisQL.Mapper.query_list()}
+    | {:error, any()}
+  defdelegate search_list_to_query_list(list, options \\ []), to: ArtemisQL.Mapper
 
   @spec to_ecto_query(Ecto.Query.t(), binary(), ArtemisQL.SearchMap.search_map(), Keyword.t()) ::
-          Ecto.Query.t() | ArtemisQL.Ecto.QueryTransformer.abort_result()
+    Ecto.Query.t()
+    | ArtemisQL.Ecto.QueryTransformer.abort_result()
   def to_ecto_query(query, binary, search_map, options \\ [])
 
   def to_ecto_query(query, binary, search_map, options) when is_binary(binary) do

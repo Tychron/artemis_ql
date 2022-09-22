@@ -19,10 +19,11 @@ defmodule ArtemisQL.DecoderTest do
       {:ok, list, ""} =
         ArtemisQL.decode(
           """
-            host_number:14166284698,14166286231,15874303730,15874303731,15874303732,15874303733
-            remote_number:17809534587,17809457114,15877784243,17809090049
-            inserted_at:"2021-03-22".."2021-03-23T05:00:00.000000Z"
-          """)
+          host_number:14166284698,14166286231,15874303730,15874303731,15874303732,15874303733
+          remote_number:17809534587,17809457114,15877784243,17809090049
+          inserted_at:"2021-03-22".."2021-03-23T05:00:00.000000Z"
+          """
+        )
 
       assert [
         {:pair, {
@@ -50,6 +51,32 @@ defmodule ArtemisQL.DecoderTest do
           {:range, {{:quote, "2021-03-22"}, {:quote, "2021-03-23T05:00:00.000000Z"}}}
         }}
       ] = list
+    end
+
+    test "can parse quoted key pairs" do
+      {:ok, list, ""} =
+        ArtemisQL.decode(
+          """
+          "Hello, World":B
+          "Goodbye, Universe":C
+          "John Doe":"Sally Sue"
+          """
+        )
+
+      assert [
+        {:pair, {
+          {:quote, "Hello, World"},
+          {:word, "B"},
+        }},
+        {:pair, {
+          {:quote, "Goodbye, Universe"},
+          {:word, "C"},
+        }},
+        {:pair, {
+          {:quote, "John Doe"},
+          {:quote, "Sally Sue"},
+        }},
+      ] == list
     end
 
     test "can decode a word starting with special characters" do
@@ -177,14 +204,22 @@ defmodule ArtemisQL.DecoderTest do
     end
 
     test "can parse datetime ranges" do
+      # infinity range, useless but, it should work
+      assert {:ok, [
+        {:pair, {{:word, "inserted_at"}, {:range, {:infinity, :infinity}}}}
+      ], ""} == ArtemisQL.decode("inserted_at:..")
+
+      # start date to infinity
       assert {:ok, [
         {:pair, {{:word, "inserted_at"}, {:range, {{:quote, "2020-01-01T23:20:32"}, :infinity}}}}
       ], ""} == ArtemisQL.decode("inserted_at:\"2020-01-01T23:20:32\"..")
 
+      # infinty to end date
       assert {:ok, [
         {:pair, {{:word, "inserted_at"}, {:range, {:infinity, {:quote, "2020-01-01T21:20:32"}}}}}
       ], ""} == ArtemisQL.decode("inserted_at:..\"2020-01-01T21:20:32\"")
 
+      # date to date
       assert {:ok, [
         {:pair, {{:word, "inserted_at"}, {:range, {{:quote, "2020-01-01T18:20:32"}, {:quote, "2020-02-01T23:20:32"}}}}}
       ], ""} == ArtemisQL.decode("inserted_at:\"2020-01-01T18:20:32\"..\"2020-02-01T23:20:32\"")

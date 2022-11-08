@@ -14,7 +14,10 @@ defmodule ArtemisQL.MixProject do
         warnings_as_errors: true,
       ],
       start_permanent: false,
-      deps: deps()
+      deps: deps(),
+      package: package(),
+      source_url: "https://github.com/Tychron/artemis_ql",
+      homepage_url: "https://github.com/Tychron/artemis_ql",
     ]
   end
 
@@ -28,6 +31,16 @@ defmodule ArtemisQL.MixProject do
     [
       {:ecto, "~> 3.1"},
       {:timex, "~> 3.6"},
+    ]
+  end
+
+  defp package do
+    [
+      maintainers: ["Tychron Developers <developers@tychron.co>"],
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/Tychron/artemis_ql"
+      },
     ]
   end
 end

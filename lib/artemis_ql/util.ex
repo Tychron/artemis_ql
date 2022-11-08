@@ -111,7 +111,7 @@ defmodule ArtemisQL.Util do
     true
   end
 
-  def should_quote_string?(<<c::utf8, _rest::binary>>) when c in [?\r, ?\n, ?\s, ?\t, ?:, ?(, ?)] do
+  def should_quote_string?(<<c::utf8, _rest::binary>>) when c in [?\r, ?\n, ?\s, ?\t, ?,, ?:, ?(, ?)] do
     true
   end
 

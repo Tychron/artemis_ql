@@ -14,6 +14,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       field :time, :time
       field :date, :date
       field :naive, :naive_datetime
+
+      field :jsonb, :map
     end
   end
 
@@ -33,6 +35,8 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_key_whitelist "time"
     def_key_whitelist "date"
     def_key_whitelist "naive"
+    def_key_whitelist "jsonb_value"
+    def_key_whitelist "jsonb_nested_value"
 
     def_pair_transform :id, {:type, :binary_id}
     def_pair_transform :inserted_at, {:type, :utc_datetime}
@@ -45,6 +49,8 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_pair_transform :time, {:type, :time}
     def_pair_transform :date, {:type, :date}
     def_pair_transform :naive, {:type, :naive_datetime}
+    def_pair_transform :jsonb_value, {:type, :string}
+    def_pair_transform :jsonb_nested_value, {:type, :string}
 
     def_pair_filter :id, {:type, :string}
     def_pair_filter :inserted_at, {:type, :utc_datetime}
@@ -57,6 +63,8 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_pair_filter :time, {:type, :time}
     def_pair_filter :date, {:type, :date}
     def_pair_filter :naive, {:type, :naive_datetime}
+    def_pair_filter :jsonb_value, {:jsonb, :string, :data, ["value"]}
+    def_pair_filter :jsonb_nested_value, {:jsonb, :string, :data, ["nested", "value"]}
   end
 
   @search_map %ArtemisQL.SearchMap{
@@ -72,6 +80,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       "time" => true,
       "date" => true,
       "naive" => true,
+      "jsonb_value" => true,
+      "jsonb_nested_value" => true,
     },
     pair_transform: %{
       id: {:type, :binary_id},
@@ -85,6 +95,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       time: {:type, :time},
       date: {:type, :date},
       naive: {:type, :naive_datetime},
+      jsonb_value: {:type, :string},
+      jsonb_nested_value: {:type, :string},
     },
     pair_filter: %{
       id: {:type, :string},
@@ -98,6 +110,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       time: {:type, :time},
       date: {:type, :date},
       naive: {:type, :naive_datetime},
+      jsonb_value: {:jsonb, :string, :jsonb, ["value"]},
+      jsonb_nested_value: {:jsonb, :string, :jsonb, ["nested", "value"]},
     },
     resolver: nil
   }
@@ -116,11 +130,15 @@ for type <- [:struct, :module] do
         bool:false
         date:2020
         naive:2020-01-27
+        jsonb_value:Something
+        jsonb_nested_value:SomethingElse
         """)
 
       query =
         QuerySchema
         |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      IO.inspect query
 
       assert %Ecto.Query{} = query
     end

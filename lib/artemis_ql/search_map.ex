@@ -45,6 +45,7 @@ defmodule ArtemisQL.SearchMap.IModule do
     | {:apply, module(), function_name::atom(), args::list()}
     | {:type, type_or_module()}
     | {:jsonb, type_or_module(), jsonb_field::field_name(), jsonb_path::[String.t()]}
+    | {:assoc, type_or_module(), assoc_name::atom(), field_name::atom()}
 
   @callback resolve(Ecto.Query.t(), value::any()) ::
     Ecto.Query.t()
@@ -110,6 +111,7 @@ defmodule ArtemisQL.SearchMap do
           {:apply, module, function_name :: atom, args :: list}
           | {:type, type_or_module()}
           | {:jsonb, type_or_module(), jsonb_field::field_name(), jsonb_path::[String.t()]}
+          | {:assoc, type_or_module(), assoc_name::atom(), field_name::atom()}
           | pair_filter_func()
 
   @type t :: %__MODULE__{

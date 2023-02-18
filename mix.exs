@@ -4,7 +4,7 @@ defmodule ArtemisQL.MixProject do
   def project do
     [
       app: :artemis_ql,
-      version: "0.2.2",
+      version: "0.3.0",
       build_path: "_build",
       config_path: "config/config.exs",
       deps_path: "deps",

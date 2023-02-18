@@ -305,7 +305,7 @@ defmodule ArtemisQL.Random do
         ArtemisQL.Random.random_naive_datetime()
 
       :string ->
-        ArtemisQL.Random.random_ascii_string(ArtemisQL.Random.random_integer(100))
+        ArtemisQL.Random.random_ascii_string(ArtemisQL.Random.random_integer(99) + 1)
 
       :boolean ->
         ArtemisQL.Random.random_boolean()

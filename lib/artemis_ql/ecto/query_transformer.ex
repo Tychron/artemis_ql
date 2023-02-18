@@ -202,6 +202,14 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
     apply_type_filter(module_or_type, query, {:jsonb, jsonb_data_key, path}, value)
   end
 
+  defp handle_apply_pair_filter_result({:assoc, module_or_type, assoc_name}, query, field_name, value) do
+    apply_type_filter(module_or_type, query, {:assoc, assoc_name, field_name}, value)
+  end
+
+  defp handle_apply_pair_filter_result({:assoc, module_or_type, assoc_name, field_name}, query, _key, value) do
+    apply_type_filter(module_or_type, query, {:assoc, assoc_name, field_name}, value)
+  end
+
   defp handle_apply_pair_filter_result(func, query, key, value) when is_function(func, 3) do
     handle_apply_pair_filter_result(func.(query, key, value), query, key, value)
   end

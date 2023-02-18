@@ -1,4 +1,16 @@
 defmodule ArtemisQL.QueryTransformerTest do
+  defmodule OtherSchema do
+    use Ecto.Schema
+
+    schema "other_schema" do
+      timestamps(type: :utc_datetime_usec)
+
+      field :name, :string
+
+      field :other_field, :string
+    end
+  end
+
   defmodule QuerySchema do
     use Ecto.Schema
 
@@ -16,6 +28,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       field :naive, :naive_datetime
 
       field :jsonb, :map
+
+      belongs_to :other, OtherSchema
     end
   end
 
@@ -37,6 +51,8 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_key_whitelist "naive"
     def_key_whitelist "jsonb_value"
     def_key_whitelist "jsonb_nested_value"
+    def_key_whitelist "other_field"
+    def_key_whitelist "other_name"
 
     def_pair_transform :id, {:type, :binary_id}
     def_pair_transform :inserted_at, {:type, :utc_datetime}
@@ -51,6 +67,8 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_pair_transform :naive, {:type, :naive_datetime}
     def_pair_transform :jsonb_value, {:type, :string}
     def_pair_transform :jsonb_nested_value, {:type, :string}
+    def_pair_transform :other_field, {:type, :string}
+    def_pair_transform :other_name, {:type, :string}
 
     def_pair_filter :id, {:type, :string}
     def_pair_filter :inserted_at, {:type, :utc_datetime}
@@ -65,6 +83,28 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_pair_filter :naive, {:type, :naive_datetime}
     def_pair_filter :jsonb_value, {:jsonb, :string, :data, ["value"]}
     def_pair_filter :jsonb_nested_value, {:jsonb, :string, :data, ["nested", "value"]}
+    def_pair_filter :other_field, {:assoc, :string, :other}
+    def_pair_filter :other_name, {:assoc, :string, :other, :name}
+
+    @impl true
+    def before_filter(query, key, _value, assigns) when key in [:other_field, :other_name] do
+      import Ecto.Query
+
+      if assigns[:joined_other] do
+        {query, assigns}
+      else
+        query =
+          query
+          |> join(:inner, [m], other in assoc(m, :other), as: :other)
+
+        {query, Map.put(assigns, :joined_other, true)}
+      end
+    end
+
+    @impl true
+    def before_filter(query, _key, _value, assigns) do
+      {query, assigns}
+    end
   end
 
   @search_map %ArtemisQL.SearchMap{
@@ -82,6 +122,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       "naive" => true,
       "jsonb_value" => true,
       "jsonb_nested_value" => true,
+      "other_field" => true,
+      "other_name" => true,
     },
     pair_transform: %{
       id: {:type, :binary_id},
@@ -97,7 +139,10 @@ defmodule ArtemisQL.QueryTransformerTest do
       naive: {:type, :naive_datetime},
       jsonb_value: {:type, :string},
       jsonb_nested_value: {:type, :string},
+      other_field: {:type, :string},
+      other_name: {:type, :string},
     },
+    before_filter: &TestSearchMap.before_filter/4,
     pair_filter: %{
       id: {:type, :string},
       inserted_at: {:type, :utc_datetime},
@@ -112,6 +157,8 @@ defmodule ArtemisQL.QueryTransformerTest do
       naive: {:type, :naive_datetime},
       jsonb_value: {:jsonb, :string, :jsonb, ["value"]},
       jsonb_nested_value: {:jsonb, :string, :jsonb, ["nested", "value"]},
+      other_field: {:assoc, :string, :other},
+      other_name: {:assoc, :string, :other, :name},
     },
     resolver: nil
   }
@@ -132,6 +179,8 @@ for type <- [:struct, :module] do
         naive:2020-01-27
         jsonb_value:Something
         jsonb_nested_value:SomethingElse
+        other_field:Something2
+        other_name:Something3
         """)
 
       query =

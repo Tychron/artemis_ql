@@ -1,6 +1,7 @@
 defmodule ArtemisQL.Ecto.Filters.JSONB do
   import Ecto.Query
   import ArtemisQL.Ecto.Util
+  import ArtemisQL.Tokens
 
   #
   # Scalars
@@ -11,7 +12,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a]},
-    nil
+    r_null_token()
   ) when type in @scalars do
     query
     |> where([m], is_nil(fragment("?->>?", field(m, ^key), ^a)))
@@ -21,7 +22,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b]},
-    nil
+    r_null_token()
   ) when type in @scalars do
     query
     |> where([m], is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
@@ -31,13 +32,13 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b, c]},
-    nil
+    r_null_token()
   ) when type in @scalars do
     query
     |> where([m], is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
   end
 
-  def apply_type_filter(_type, query, _key, :wildcard) do
+  def apply_type_filter(_type, query, _key, r_wildcard_token()) do
     query
   end
 
@@ -45,11 +46,11 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a]},
-    {:list, items}
+    r_list_token(items: items)
   ) when type in @scalars do
     items =
-      Enum.map(items, fn {:value, item} ->
-        item
+      Enum.map(items, fn r_value_token(value: value) ->
+        value
       end)
 
     query
@@ -60,11 +61,11 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b]},
-    {:list, items}
+    r_list_token(items: items)
   ) when type in @scalars do
     items =
-      Enum.map(items, fn {:value, item} ->
-        item
+      Enum.map(items, fn r_value_token(value: value) ->
+        value
       end)
 
     query
@@ -75,11 +76,11 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b, c]},
-    {:list, items}
+    r_list_token(items: items)
   ) when type in @scalars do
     items =
-      Enum.map(items, fn {:value, item} ->
-        item
+      Enum.map(items, fn r_value_token(value: value) ->
+        value
       end)
 
     query
@@ -90,7 +91,37 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a]},
-    {:value, value}
+    r_pin_token(value: field_name)
+  ) when type in @scalars do
+    query
+    |> where([m], fragment("?->>?", field(m, ^key), ^a) == field(m, ^field_name))
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:jsonb, key, [a, b]},
+    r_pin_token(value: field_name)
+  ) when type in @scalars do
+    query
+    |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == field(m, ^field_name))
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:jsonb, key, [a, b, c]},
+    r_pin_token(value: field_name)
+  ) when type in @scalars do
+    query
+    |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == field(m, ^field_name))
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:jsonb, key, [a]},
+    r_value_token(value: value)
   ) when type in @scalars do
     value = to_string(value)
 
@@ -102,7 +133,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b]},
-    {:value, value}
+    r_value_token(value: value)
   ) when type in @scalars do
     value = to_string(value)
 
@@ -114,7 +145,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b, c]},
-    {:value, value}
+    r_value_token(value: value)
   ) when type in @scalars do
     value = to_string(value)
 
@@ -126,17 +157,17 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     _type,
     query,
     {:jsonb, key, [a]},
-    {:cmp, {operator, nil}}
+    r_cmp_token(pair: {operator, r_null_token()})
   ) do
     # normally you should only be using either NEQ or EQ in this case, the others are just stupid
     # placeholders for now
     case operator do
-      op when op in [:gte, :lte] ->
+      op when op in [:gte, :lte, :fuzz] ->
         query
         |> where([m], is_nil(fragment("?->>?", field(m, ^key), ^a)) or
           not is_nil(fragment("?->>?", field(m, ^key), ^a)))
 
-      op when op in [:gt, :lt, :neq] ->
+      op when op in [:gt, :lt, :neq, :nfuzz] ->
         query
         |> where([m], not is_nil(fragment("?->>?", field(m, ^key), ^a)))
 
@@ -150,17 +181,17 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     _type,
     query,
     {:jsonb, key, [a, b]},
-    {:cmp, {operator, nil}}
+    r_cmp_token(pair: {operator, r_null_token()})
   ) do
     # normally you should only be using either NEQ or EQ in this case, the others are just stupid
     # placeholders for now
     case operator do
-      op when op in [:gte, :lte] ->
+      op when op in [:gte, :lte, :fuzz] ->
         query
         |> where([m], is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)) or
           not is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
 
-      op when op in [:gt, :lt, :neq] ->
+      op when op in [:gt, :lt, :neq, :nfuzz] ->
         query
         |> where([m], not is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
 
@@ -174,17 +205,17 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     _type,
     query,
     {:jsonb, key, [a, b, c]},
-    {:cmp, {operator, nil}}
+    r_cmp_token(pair: {operator, r_null_token()})
   ) do
     # normally you should only be using either NEQ or EQ in this case, the others are just stupid
     # placeholders for now
     case operator do
-      op when op in [:gte, :lte] ->
+      op when op in [:gte, :lte, :fuzz] ->
         query
         |> where([m], is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)) or
           not is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
 
-      op when op in [:gt, :lt, :neq] ->
+      op when op in [:gt, :lt, :neq, :nfuzz] ->
         query
         |> where([m], not is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
 
@@ -198,7 +229,130 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a]},
-    {:cmp, {operator, {:value, value}}}
+    r_cmp_token(pair: {operator, r_pin_token(value: field_name)})
+  ) when type in @scalars do
+    case operator do
+      :gte ->
+        query
+        |> where([m], fragment("?->>?", field(m, ^key), ^a) >= field(m, ^field_name))
+
+      :lte ->
+        query
+        |> where([m], fragment("?->>?", field(m, ^key), ^a) <= field(m, ^field_name))
+
+      :gt ->
+        query
+        |> where([m], fragment("?->>?", field(m, ^key), ^a) > field(m, ^field_name))
+
+      :lt ->
+        query
+        |> where([m], fragment("?->>?", field(m, ^key), ^a) < field(m, ^field_name))
+
+      :neq ->
+        query
+        |> where([m], fragment("?->>?", field(m, ^key), ^a) != field(m, ^field_name))
+
+      :eq ->
+        query
+        |> where([m], fragment("?->>?", field(m, ^key), ^a) == field(m, ^field_name))
+
+      :fuzz ->
+        query
+        |> where([m], fragment("? ILIKE ?", fragment("?->>?", field(m, ^key), ^a), field(m, ^field_name)))
+
+      :nfuzz ->
+        query
+        |> where([m], fragment("? NOT ILIKE ?", fragment("?->>?", field(m, ^key), ^a), field(m, ^field_name)))
+    end
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:jsonb, key, [a, b]},
+    r_cmp_token(pair: {operator, r_pin_token(value: field_name)})
+  ) when type in @scalars do
+    case operator do
+      :gte ->
+        query
+        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) >= field(m, ^field_name))
+
+      :lte ->
+        query
+        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) <= field(m, ^field_name))
+
+      :gt ->
+        query
+        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) > field(m, ^field_name))
+
+      :lt ->
+        query
+        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) < field(m, ^field_name))
+
+      :neq ->
+        query
+        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) != field(m, ^field_name))
+
+      :eq ->
+        query
+        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == field(m, ^field_name))
+
+      :fuzz ->
+        query
+        |> where([m], fragment("? ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), field(m, ^field_name)))
+
+      :nfuzz ->
+        query
+        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), field(m, ^field_name)))
+    end
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:jsonb, key, [a, b, c]},
+    r_cmp_token(pair: {operator, r_pin_token(value: field_name)})
+  ) when type in @scalars do
+    case operator do
+      :gte ->
+        query
+        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) >= field(m, ^field_name))
+
+      :lte ->
+        query
+        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) <= field(m, ^field_name))
+
+      :gt ->
+        query
+        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) > field(m, ^field_name))
+
+      :lt ->
+        query
+        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) < field(m, ^field_name))
+
+      :neq ->
+        query
+        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) != field(m, ^field_name))
+
+      :eq ->
+        query
+        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == field(m, ^field_name))
+
+      :fuzz ->
+        query
+        |> where([m], fragment("? ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), field(m, ^field_name)))
+
+      :nfuzz ->
+        query
+        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), field(m, ^field_name)))
+    end
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:jsonb, key, [a]},
+    r_cmp_token(pair: {operator, r_value_token(value: value)})
   ) when type in @scalars do
     case operator do
       :gte ->
@@ -224,6 +378,18 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
       :eq ->
         query
         |> where([m], fragment("?->>?", field(m, ^key), ^a) == ^value)
+
+      :fuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([m], fragment("? ILIKE ?", fragment("?->>?", field(m, ^key), ^a), ^value))
+
+      :nfuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([m], fragment("? NOT ILIKE ?", fragment("?->>?", field(m, ^key), ^a), ^value))
     end
   end
 
@@ -231,7 +397,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b]},
-    {:cmp, {operator, {:value, value}}}
+    r_cmp_token(pair: {operator, r_value_token(value: value)})
   ) when type in @scalars do
     case operator do
       :gte ->
@@ -257,6 +423,18 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
       :eq ->
         query
         |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == ^value)
+
+      :fuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([m], fragment("? ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), ^value))
+
+      :nfuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), ^value))
     end
   end
 
@@ -264,7 +442,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b, c]},
-    {:cmp, {operator, {:value, value}}}
+    r_cmp_token(pair: {operator, r_value_token(value: value)})
   ) when type in @scalars do
     case operator do
       :gte ->
@@ -290,6 +468,18 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
       :eq ->
         query
         |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == ^value)
+
+      :fuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([m], fragment("? ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), ^value))
+
+      :nfuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), ^value))
     end
   end
 
@@ -297,19 +487,19 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a]},
-    {:cmp, {operator, {:partial, items}}}
+    r_cmp_token(pair: {operator, r_partial_token(items: items)})
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(items)
 
     case operator do
-      op when op in [:lt, :gt, :neq] ->
+      op when op in [:lt, :gt, :neq, :nfuzz] ->
         query
         |> where([m], fragment("?::text NOT ILIKE ?",
           fragment("?->>?", field(m, ^key), ^a),
           ^pattern
         ))
 
-      op when op in [:gte, :lte, :eq] ->
+      op when op in [:gte, :lte, :eq, :fuzz] ->
         query
         |> where([m], fragment("?::text ILIKE ?",
           fragment("?->>?", field(m, ^key), ^a),
@@ -322,19 +512,19 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b]},
-    {:cmp, {operator, {:partial, items}}}
+    r_cmp_token(pair: {operator, r_partial_token(items: items)})
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(items)
 
     case operator do
-      op when op in [:lt, :gt, :neq] ->
+      op when op in [:lt, :gt, :neq, :nfuzz] ->
         query
         |> where([m], fragment("?::text NOT ILIKE ?",
           fragment("?->?->>?", field(m, ^key), ^a, ^b),
           ^pattern
         ))
 
-      op when op in [:gte, :lte, :eq] ->
+      op when op in [:gte, :lte, :eq, :fuzz] ->
         query
         |> where([m], fragment("?::text ILIKE ?",
           fragment("?->?->>?", field(m, ^key), ^a, ^b),
@@ -347,19 +537,19 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b, c]},
-    {:cmp, {operator, {:partial, items}}}
+    r_cmp_token(pair: {operator, r_partial_token(items: items)})
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(items)
 
     case operator do
-      op when op in [:lt, :gt, :neq] ->
+      op when op in [:lt, :gt, :neq, :nfuzz] ->
         query
         |> where([m], fragment("?::text NOT ILIKE ?",
           fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c),
           ^pattern
         ))
 
-      op when op in [:gte, :lte, :eq] ->
+      op when op in [:gte, :lte, :eq, :fuzz] ->
         query
         |> where([m], fragment("?::text ILIKE ?",
           fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c),
@@ -372,7 +562,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a]},
-    {:partial, elements}
+    r_partial_token(items: elements)
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(elements)
 
@@ -389,7 +579,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b]},
-    {:partial, elements}
+    r_partial_token(items: elements)
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(elements)
 
@@ -406,7 +596,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     type,
     query,
     {:jsonb, key, [a, b, c]},
-    {:partial, elements}
+    r_partial_token(items: elements)
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(elements)
 

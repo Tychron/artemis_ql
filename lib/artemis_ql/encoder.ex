@@ -1,4 +1,6 @@
 defmodule ArtemisQL.Encoder do
+  import ArtemisQL.Tokens
+
   @type search_list :: term()
 
   @type encode_option :: {:return, :iodata | :binary}
@@ -10,19 +12,19 @@ defmodule ArtemisQL.Encoder do
     do_encode(tokens, [], options)
   end
 
-  def encode_value(nil) do
+  def encode_value(r_null_token()) do
     {:ok, :NULL}
   end
 
-  def encode_value({:partial, list}) do
+  def encode_value(r_partial_token(items: list)) do
     {:ok, Enum.map(list, fn
-      :wildcard ->
+      r_wildcard_token() ->
         %{:"$wildcard" => true}
 
-      :any_char ->
+      r_any_char_token() ->
         %{:"$any_char" => true}
 
-      str when is_binary(str) ->
+      r_value_token(value: str) when is_binary(str) ->
         str
     end)}
   end
@@ -95,47 +97,47 @@ defmodule ArtemisQL.Encoder do
     do_encode(rest, [encode_term(item) | acc], options)
   end
 
-  defp encode_term(:NULL) do
+  defp encode_term(r_null_token()) do
     "NULL"
   end
 
-  defp encode_term(:wildcard) do
+  defp encode_term(r_wildcard_token()) do
     "*"
   end
 
-  defp encode_term(:any_char) do
+  defp encode_term(r_any_char_token()) do
     "?"
   end
 
-  defp encode_term({:range, {s, e}}) do
+  defp encode_term(r_range_token(pair: {s, e})) do
     s =
       case s do
-        :infinity ->
+        r_infinity_token() ->
           ""
 
-        _ ->
+        {_, _, _s_meta} ->
           encode_term(s)
       end
 
     e =
       case e do
-        :infinity ->
+        r_infinity_token() ->
           ""
 
-        _ ->
+        {_, _, _e_meta} ->
           encode_term(e)
       end
 
     [s, "..", e]
   end
 
-  defp encode_term({:pair, {key, value}}) do
+  defp encode_term(r_pair_token(pair: {key, value})) do
     key = encode_term(key)
     value = encode_term(value)
     [key, ":", value]
   end
 
-  defp encode_term({:partial, segments}) when is_list(segments) do
+  defp encode_term(r_partial_token(items: segments)) when is_list(segments) do
     Enum.map(segments, fn
       :wildcard ->
         "*"
@@ -148,11 +150,11 @@ defmodule ArtemisQL.Encoder do
     end)
   end
 
-  defp encode_term({:word, key}) when is_binary(key) do
-    key
+  defp encode_term(r_word_token(value: value)) when is_binary(value) do
+    value
   end
 
-  defp encode_term({:cmp, {op, value}}) do
+  defp encode_term(r_cmp_token(pair: {op, value})) do
     prefix =
       case op do
         :gt -> ">"
@@ -161,26 +163,32 @@ defmodule ArtemisQL.Encoder do
         :lte -> "<="
         :eq -> "="
         :neq -> "!"
+        :fuzz -> "~"
+        :nfuzz -> "!~"
       end
 
     [prefix, encode_term(value)]
   end
 
-  defp encode_term({:quote, value}) when is_binary(value) do
+  defp encode_term(r_quote_token(value: value)) when is_binary(value) do
     encode_quoted_string(value)
   end
 
-  defp encode_term({:group, list}) when is_list(list) do
+  defp encode_term(r_group_token(items: list)) when is_list(list) do
     {:ok, blob} = encode(list, return: :iodata)
     ["(", blob, ")"]
   end
 
-  defp encode_term({:list, list}) when is_list(list) do
+  defp encode_term(r_list_token(items: list)) when is_list(list) do
     list
     |> Enum.map(fn item ->
       encode_term(item)
     end)
     |> Enum.intersperse(",")
+  end
+
+  defp encode_term(r_pin_token(value: r_token() = term)) do
+    ["^", encode_term(term)]
   end
 
   defp encode_quoted_string(str) when is_binary(str) do

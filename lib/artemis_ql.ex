@@ -93,12 +93,14 @@ defmodule ArtemisQL do
         <op><value>
 
       Examples:
-        >=value (gte)
-        >value (gt)
-        <value (lt)
-        <=value (lte)
-        =value (eq)
-        !value (neq)
+        >=value (gte) - greater-than or equal to
+        >value (gt) - greater-than
+        <value (lt) - less-than
+        <=value (lte) - less-than or equal to
+        =value (eq) [default] - equals
+        !value (neq) - not equals
+        ~value (fuzz) - fuzzy equals, but only with strings
+        !~value (nfuzz) - not fuzzy equals, but only with strings
 
       Examples (in pairs):
         date:>=2019-01-20

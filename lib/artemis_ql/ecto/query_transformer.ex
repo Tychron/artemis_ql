@@ -14,6 +14,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   alias ArtemisQL.Ecto.QueryTransformer.Context
 
   import ArtemisQL.Ecto.Filters
+  import ArtemisQL.Tokens
 
   @type search_list :: ArtemisQL.Decoder.search_list()
 
@@ -34,7 +35,11 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
     }
 
     result =
-      Enum.reduce_while(list, context, &handle_item(&1, &2))
+      Enum.reduce_while(
+        list,
+        context,
+        &handle_item(&1, &2)
+      )
 
     case result do
       %Context{query: query} ->
@@ -46,7 +51,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   end
 
   defp handle_item(
-    {:and, {a, b}},
+    r_and_token(pair: {a, b}),
     %Context{} = context
   ) when is_list(b) do
     case handle_item(a, context) do
@@ -65,7 +70,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   end
 
   defp handle_item(
-    {kind, _value} = pair,
+    r_token(kind: kind, meta: meta) = token,
     %Context{} = context
   ) when kind in [:partial, :word, :quote, :range, :list, :cmp, :group] do
     result =
@@ -74,19 +79,22 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
           {:abort, :no_resolver}
 
         %SearchMap{resolver: resolver} ->
-          resolver.(context.query, pair)
+          resolver.(context.query, token)
 
         module when is_atom(module) ->
-          module.resolve(context.query, pair)
+          module.resolve(context.query, token)
       end
 
     case result do
       {:abort, reason} ->
         {:halt, {:abort, reason}}
 
-      {:ok, query, key, value} ->
+      {:ok, query, key, r_token() = value} ->
         context = %{context | query: query}
-        handle_item({:pair, {{:quote, to_string(key)}, value}}, context)
+        handle_item(
+          r_pair_token(pair: {r_quote_token(value: to_string(key)), value}, meta: meta),
+          context
+        )
 
       %Ecto.Query{} = query ->
         {:cont, %{context | query: query}}
@@ -97,9 +105,9 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   end
 
   defp handle_item(
-    {:pair, {{key_type, key}, value}},
+    r_pair_token(pair: {{key_kind, key, _}, value_token}),
     %Context{} = context
-  ) when key_type in [:word, :quote] do
+  ) when key_kind in [:word, :quote] do
     case Types.whitelist_key(key, context.search_map) do
       :missing ->
         case Keyword.get(context.options, :allow_missing, false) do
@@ -114,13 +122,13 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
         {:cont, context}
 
       {:ok, key} ->
-        case Types.transform_pair(key, value, context.search_map) do
+        case Types.transform_pair(key, value_token, context.search_map) do
           {:ok, key, value} ->
-            case apply_before_filter(key, value, context) do
+            case apply_before_filter(key, value_token, context) do
               :reject ->
                 {:halt, {:abort, :reject}}
 
-              {:ok, context} ->
+              {:ok, %Context{} = context} ->
                 case apply_pair_filter(key, value, context) do
                   {:abort, reason} ->
                     {:halt, {:abort, reason}}
@@ -218,7 +226,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
     query
   end
 
-defp handle_apply_pair_filter_result(schema, _old_query, _key, _value) when is_atom(schema) and not is_boolean(schema) do
+  defp handle_apply_pair_filter_result(schema, _old_query, _key, _value) when is_atom(schema) and not is_boolean(schema) do
     schema
   end
 end

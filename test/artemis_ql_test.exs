@@ -1,6 +1,8 @@
 defmodule ArtemisQLTest do
   use ExUnit.Case
 
+  import ArtemisQL.Support.TestAssertions
+
   describe "string -> search list -> query list -> search list -> string" do
     test "can perform full on empty query" do
       assert encoding_cycle("")
@@ -30,7 +32,7 @@ defmodule ArtemisQLTest do
 
     {:ok, search_list2} = ArtemisQL.query_list_to_search_list(query_list)
 
-    assert search_list == search_list2
+    assert_search_list_without_meta(search_list, search_list2)
 
     {:ok, str2} = ArtemisQL.encode(search_list2)
 

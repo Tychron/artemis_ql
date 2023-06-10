@@ -1,4 +1,6 @@
 defmodule ArtemisQL.Random do
+  import ArtemisQL.Tokens
+
   def random_boolean do
     :rand.uniform(2) == 1
   end
@@ -275,7 +277,13 @@ defmodule ArtemisQL.Random do
         maybe_random_integer(33..126)
       end
 
-    {:partial, [:wildcard, to_string(chars), :any_char]}
+    r_partial_token(
+      items: [
+        r_wildcard_token(),
+        r_value_token(value: IO.iodata_to_binary(chars)),
+        r_any_char_token()
+      ]
+    )
   end
 
   def random_value_of_type(type) do

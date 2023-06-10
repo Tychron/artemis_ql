@@ -2,6 +2,7 @@ defmodule ArtemisQL.Mapper do
   @moduledoc """
   Utility functions for transforming list of query items into search lists
   """
+  import ArtemisQL.Tokens
 
   @type query_op :: :gt | :gte | :lt | :lte | :eq | :neq | :in
 
@@ -86,8 +87,8 @@ defmodule ArtemisQL.Mapper do
             nil ->
               val
 
-            op when op in [:eq, :neq, :gt, :gte, :lt, :lte, :in] ->
-              {:cmp, {op, val}}
+            op when op in [:eq, :neq, :gt, :gte, :lt, :lte, :in, :fuzz, :nfuzz] ->
+              {:cmp, {op, val}, nil}
           end
 
         result =
@@ -97,10 +98,10 @@ defmodule ArtemisQL.Mapper do
 
             key ->
               case value_to_search_term(key, options) do
-                {:ok, {type, _} = key} when type in [:word, :quote] ->
-                  {:ok, {:pair, {key, val}}}
+                {:ok, {kind, _, _meta} = token} when kind in [:word, :quote] ->
+                  {:ok, {:pair, {token, val}, nil}}
 
-                {:ok, _} ->
+                {:ok, {_, _, _meta}} ->
                   {:error, {:bad_query_list_item, {idx, {:invalid_key, {key, :unexpected}}}}}
 
                 {:error, reason} ->
@@ -122,23 +123,23 @@ defmodule ArtemisQL.Mapper do
   end
 
   defp value_to_search_term(nil, _options) do
-    {:ok, :NULL}
+    {:ok, {:NULL, nil, nil}}
   end
 
   defp value_to_search_term(value, _options) when is_binary(value) do
     if ArtemisQL.Util.should_quote_string?(value) do
-      {:ok, {:quote, value}}
+      {:ok, {:quote, value, nil}}
     else
-      {:ok, {:word, value}}
+      {:ok, {:word, value, nil}}
     end
   end
 
   defp value_to_search_term(value, _options) when is_boolean(value) do
-    {:ok, {:word, to_string(value)}}
+    {:ok, {:word, to_string(value), nil}}
   end
 
   defp value_to_search_term(value, _options) when is_number(value) do
-    {:ok, {:word, to_string(value)}}
+    {:ok, {:word, to_string(value), nil}}
   end
 
   defp value_to_search_term(value, options) when is_list(value) do
@@ -155,7 +156,7 @@ defmodule ArtemisQL.Mapper do
 
     case result do
       {:ok, list} ->
-        {:ok, {:list, Enum.reverse(list)}}
+        {:ok, r_list_token(items: Enum.reverse(list))}
 
       {:error, _} = err ->
         err
@@ -163,23 +164,23 @@ defmodule ArtemisQL.Mapper do
   end
 
   defp value_to_search_term(%{:"$wildcard" => _}, _options) do
-    {:ok, :wildcard}
+    {:ok, r_wildcard_token()}
   end
 
   defp value_to_search_term(%{:"$any_char" => _}, _options) do
-    {:ok, :any_char}
+    {:ok, r_any_char_token()}
   end
 
   defp value_to_search_term(%{:"$infinity" => _}, _options) do
-    {:ok, :infinity}
+    {:ok, r_infinity_token()}
   end
 
   defp value_to_search_term(%{:"$range" => [a, b]}, options) do
     with \
-      {:ok, a} <- value_to_search_term(a, options),
-      {:ok, b} <- value_to_search_term(b, options)
+      {:ok, r_token() = a} <- value_to_search_term(a, options),
+      {:ok, r_token() = b} <- value_to_search_term(b, options)
     do
-      {:ok, {:range, {a, b}}}
+      {:ok, r_range_token(pair: {a, b})}
     else
       {:error, reason} ->
         {:error, {:bad_range, reason}}
@@ -191,16 +192,16 @@ defmodule ArtemisQL.Mapper do
       list
       |> Enum.reduce_while({:ok, []}, fn
         %{:"$wildcard" => _}, {:ok, acc} ->
-          {:cont, {:ok, [:wildcard | acc]}}
+          {:cont, {:ok, [r_wildcard_token() | acc]}}
 
         %{:"$any_char" => _}, {:ok, acc} ->
-          {:cont, {:ok, [:any_char | acc]}}
+          {:cont, {:ok, [r_any_char_token() | acc]}}
 
         :wildcard, {:ok, acc} ->
-          {:cont, {:ok, [:wildcard | acc]}}
+          {:cont, {:ok, [r_wildcard_token() | acc]}}
 
         :any_char, {:ok, acc} ->
-          {:cont, {:ok, [:any_char | acc]}}
+          {:cont, {:ok, [r_any_char_token() | acc]}}
 
         value, {:ok, acc} when is_binary(value) or is_number(value) ->
           case value_to_search_term(value, options) do
@@ -217,7 +218,7 @@ defmodule ArtemisQL.Mapper do
 
     case result do
       {:ok, partial} ->
-        {:ok, {:partial, Enum.reverse(partial)}}
+        {:ok, {:partial, Enum.reverse(partial), nil}}
 
       {:error, reason} ->
         {:error, {:invalid_partial, reason}}
@@ -238,10 +239,13 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp do_search_item_to_query_item({:pair, {key, value}}, options) do
+  defp do_search_item_to_query_item(
+    r_pair_token(pair: {r_token() = key_token, r_token() = value_token}),
+    options
+  ) do
     result =
-      case value do
-        {:cmp, {op, value}} ->
+      case value_token do
+        r_cmp_token(pair: {op, value}) ->
           case do_search_item_term_to_query_item_term(value, options) do
             {:ok, value} ->
               {:ok, %{
@@ -250,11 +254,11 @@ defmodule ArtemisQL.Mapper do
               }}
           end
 
-        value ->
-          case do_search_item_term_to_query_item_term(value, options) do
+        r_token() = value_token ->
+          case do_search_item_term_to_query_item_term(value_token, options) do
             {:ok, value} ->
               {:ok, %{
-                key: key,
+                key: key_token,
                 value: value,
               }}
           end
@@ -262,7 +266,7 @@ defmodule ArtemisQL.Mapper do
 
     case result do
       {:ok, item} ->
-        case do_search_item_term_to_query_item_term(key, options) do
+        case do_search_item_term_to_query_item_term(key_token, options) do
           {:ok, key} when is_binary(key) ->
             {:ok, Map.put(item, :key, key)}
 
@@ -272,7 +276,7 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp do_search_item_to_query_item({:cmp, {op, value}}, options) do
+  defp do_search_item_to_query_item(r_cmp_token(pair: {op, value}), options) do
     case do_search_item_term_to_query_item_term(value, options) do
       {:ok, value} ->
         {:ok, %{
@@ -282,8 +286,8 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp do_search_item_to_query_item(term, options) do
-    case do_search_item_term_to_query_item_term(term, options) do
+  defp do_search_item_to_query_item(r_token() = token, options) do
+    case do_search_item_term_to_query_item_term(token, options) do
       {:ok, value} ->
         {:ok, %{
           value: value,
@@ -291,38 +295,38 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp do_search_item_term_to_query_item_term(:wildcard, _options) do
+  defp do_search_item_term_to_query_item_term(r_wildcard_token(), _options) do
     {:ok, %{:"$wildcard" => true}}
   end
 
-  defp do_search_item_term_to_query_item_term(:any_char, _options) do
+  defp do_search_item_term_to_query_item_term(r_any_char_token(), _options) do
     {:ok, %{:"$any_char" => true}}
   end
 
-  defp do_search_item_term_to_query_item_term(:infinity, _options) do
+  defp do_search_item_term_to_query_item_term(r_infinity_token(), _options) do
     {:ok, %{:"$infinity" => true}}
   end
 
-  defp do_search_item_term_to_query_item_term({:word, word}, _options) do
-    {:ok, word}
-  end
-
-  defp do_search_item_term_to_query_item_term({:quote, value}, _options) do
+  defp do_search_item_term_to_query_item_term(r_word_token(value: value), _options) do
     {:ok, value}
   end
 
-  defp do_search_item_term_to_query_item_term({:partial, segments}, options) do
+  defp do_search_item_term_to_query_item_term(r_quote_token(value: value), _options) do
+    {:ok, value}
+  end
+
+  defp do_search_item_term_to_query_item_term(r_partial_token(items: segments), options) do
     result =
       Enum.reduce_while(segments, {:ok, []}, fn
-        :wildcard, {:ok, acc} ->
+        r_wildcard_token(), {:ok, acc} ->
           {:cont, {:ok, [%{:"$wildcard" => true} | acc]}}
 
-        :any_char, {:ok, acc} ->
+        r_any_char_token(), {:ok, acc} ->
           {:cont, {:ok, [%{:"$any_char" => true} | acc]}}
 
-        token, {:ok, acc} ->
+        r_token() = token, {:ok, acc} ->
           case do_search_item_term_to_query_item_term(token, options) do
-            {:ok, item} ->
+            {:ok, item} when is_binary(item) ->
               {:cont, {:ok, [item | acc]}}
 
             {:error, _} = err ->
@@ -341,7 +345,10 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp do_search_item_term_to_query_item_term({:range, {a, b}}, options) do
+  defp do_search_item_term_to_query_item_term(
+    r_range_token(pair: {r_token() = a, r_token() = b}),
+    options
+  ) do
     with \
       {:ok, a} <- do_search_item_term_to_query_item_term(a, options),
       {:ok, b} <- do_search_item_term_to_query_item_term(b, options)
@@ -355,7 +362,10 @@ defmodule ArtemisQL.Mapper do
     end
   end
 
-  defp do_search_item_term_to_query_item_term({:list, list}, options) do
+  defp do_search_item_term_to_query_item_term(
+    r_list_token(items: list),
+    options
+  ) do
     result =
       Enum.reduce_while(list, {:ok, []}, fn item, {:ok, acc} ->
         case do_search_item_term_to_query_item_term(item, options) do
@@ -532,5 +542,43 @@ defmodule ArtemisQL.Mapper do
       :error ->
         {:error, {:bad_operator_value, op}}
     end
+  end
+
+  def clear_all_token_meta(tokens) when is_list(tokens) do
+    Enum.map(tokens, &clear_token_meta/1)
+  end
+
+  def clear_token_meta(r_range_token(pair: {a, b})) do
+    r_range_token(pair: {clear_token_meta(a), clear_token_meta(b)})
+  end
+
+  def clear_token_meta(r_pair_token(pair: {a, b})) do
+    r_pair_token(pair: {clear_token_meta(a), clear_token_meta(b)})
+  end
+
+  def clear_token_meta(r_pin_token(value: value)) do
+    r_pin_token(value: clear_token_meta(value))
+  end
+
+  def clear_token_meta(r_partial_token(items: values)) do
+    r_partial_token(items: clear_all_token_meta(values))
+  end
+
+  def clear_token_meta(r_list_token(items: values)) do
+    r_list_token(items: Enum.map(values, &clear_token_meta/1))
+  end
+
+  def clear_token_meta(r_group_token(items: values)) do
+    r_group_token(items: Enum.map(values, &clear_token_meta/1))
+  end
+
+  def clear_token_meta(r_cmp_token(pair: {op, value})) do
+    r_cmp_token(pair: {op, clear_token_meta(value)})
+  end
+
+  def clear_token_meta(
+    {kind, value, _meta}
+  ) when kind in [:word, :quote, :infinity, :wildcard, :any_char] do
+    {kind, value, nil}
   end
 end

@@ -5,18 +5,31 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
   import Ecto.Query
   import ArtemisQL.Types
   import ArtemisQL.Ecto.Util
+  import ArtemisQL.Tokens
+
+  @date_or_time_types [:date, :time, :datetime, :utc_datetime, :naive_datetime]
 
   #
   # Scalars
   #
   @scalars [:binary_id, :integer, :float, :atom, :string, :decimal, :boolean]
 
-  def apply_type_filter(_type, query, {:assoc, assoc_name, field_name}, nil) do
+  def apply_type_filter(
+    _type,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_null_token()
+  ) do
     query
     |> where([_parent, {^assoc_name, m}], is_nil(field(m, ^field_name)))
   end
 
-  def apply_type_filter(_type, query, _key, :wildcard) do
+  def apply_type_filter(
+    _type,
+    query,
+    _key,
+    r_wildcard_token()
+  ) do
     query
   end
 
@@ -24,11 +37,11 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     type,
     query,
     {:assoc, assoc_name, field_name},
-    {:list, items}
+    r_list_token(items: items)
   ) when type in @scalars do
     items =
-      Enum.map(items, fn {:value, item} ->
-        item
+      Enum.map(items, fn r_value_token(value: value) ->
+        value
       end)
 
     query
@@ -39,7 +52,7 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     type,
     query,
     {:assoc, assoc_name, field_name},
-    {:value, value}
+    r_value_token(value: value)
   ) when type in @scalars do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
@@ -49,7 +62,7 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     _type,
     query,
     {:assoc, assoc_name, field_name},
-    {:cmp, {operator, nil}}
+    r_cmp_token(pair: {operator, r_null_token()})
   ) do
     # normally you should only be using either NEQ or EQ in this case, the others are just stupid
     # placeholders for now
@@ -77,6 +90,14 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
       :eq ->
         query
         |> where([_m, {^assoc_name, m}], is_nil(field(m, ^field_name)))
+
+      :fuzz ->
+        query
+        |> where([_m, {^assoc_name, m}], is_nil(field(m, ^field_name)))
+
+      :nfuzz ->
+        query
+        |> where([_m, {^assoc_name, m}], not is_nil(field(m, ^field_name)))
     end
   end
 
@@ -84,7 +105,7 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     type,
     query,
     {:assoc, assoc_name, field_name},
-    {:cmp, {operator, {:value, value}}}
+    r_cmp_token(pair: {operator, r_value_token(value: value)})
   ) when type in @scalars do
     case operator do
       :gte ->
@@ -110,6 +131,18 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
       :eq ->
         query
         |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
+
+      :fuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([_m, {^assoc_name, m}], fragment("? ILIKE ?", field(m, ^field_name), ^value))
+
+      :nfuzz ->
+        value = "%#{escape_string_for_like(value)}%"
+
+        query
+        |> where([_m, {^assoc_name, m}], fragment("? NOT ILIKE ?", field(m, ^field_name), ^value))
     end
   end
 
@@ -117,16 +150,16 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     type,
     query,
     {:assoc, assoc_name, field_name},
-    {:cmp, {operator, {:partial, items}}}
+    r_cmp_token(pair: {operator, r_partial_token(items: items)})
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(items)
 
     case operator do
-      op when op in [:lt, :gt, :neq] ->
+      op when op in [:lt, :gt, :neq, :fuzz] ->
         query
         |> where([_m, {^assoc_name, m}], fragment("?::text NOT ILIKE ?", field(m, ^field_name), ^pattern))
 
-      op when op in [:gte, :lte, :eq] ->
+      op when op in [:gte, :lte, :eq, :nfuzz] ->
         query
         |> where([_m, {^assoc_name, m}], fragment("?::text ILIKE ?", field(m, ^field_name), ^pattern))
     end
@@ -136,7 +169,7 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     type,
     query,
     key,
-    {:group, [{kind, _} = item]}
+    r_group_token(items: [r_token(kind: kind) = item])
   ) when kind in [:list, :value, :partial] do
     apply_type_filter(type, query, key, item)
   end
@@ -145,44 +178,53 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     type,
     query,
     key,
-    {:cmp, {operator, {:group, [{kind, _} = item]}}}
+    r_cmp_token(pair: {operator, r_group_token(items: [r_token(kind: kind) = item])})
   ) when type in @scalars and kind in [:value, :partial] do
     # rebuild the group as if, it was a list
-    apply_type_filter(type, query, key, {:cmp, {operator, {:group, [{:list, [item]}]}}})
+    apply_type_filter(
+      type,
+      query,
+      key,
+      r_cmp_token(pair: {operator, r_group_token(items: [r_list_token(items: [item])])})
+    )
   end
 
-  def apply_type_filter(type, query, {:assoc, assoc_name, field_name},
-        {:cmp, {operator, {:group, [{:list, items}]}}}) when type in @scalars do
+  def apply_type_filter(
+    type,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_cmp_token(pair: {operator, r_group_token(items: [r_list_token(items: items)])})
+  ) when type in @scalars do
     # OP(a,b,c)
     case operator do
       :gte ->
-        Enum.reduce(items, query, fn {:value, value}, query ->
+        Enum.reduce(items, query, fn r_value_token(value: value), query ->
           query
           |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^value)
         end)
 
       :lte ->
-        Enum.reduce(items, query, fn {:value, value}, query ->
+        Enum.reduce(items, query, fn r_value_token(value: value), query ->
           query
           |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^value)
         end)
 
       :gt ->
-        Enum.reduce(items, query, fn {:value, value}, query ->
+        Enum.reduce(items, query, fn r_value_token(value: value), query ->
           query
           |> where([_m, {^assoc_name, m}], field(m, ^field_name) > ^value)
         end)
 
       :lt ->
-        Enum.reduce(items, query, fn {:value, value}, query ->
+        Enum.reduce(items, query, fn r_value_token(value: value), query ->
           query
           |> where([_m, {^assoc_name, m}], field(m, ^field_name) < ^value)
         end)
 
       :neq ->
         values =
-          Enum.map(items, fn {:value, item} ->
-            item
+          Enum.map(items, fn r_value_token(value: value) ->
+            value
           end)
 
         query
@@ -190,43 +232,106 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
 
       :eq ->
         values =
-          Enum.map(items, fn {:value, item} ->
-            item
+          Enum.map(items, fn r_value_token(value: value) ->
+            value
           end)
 
         query
         |> where([_m, {^assoc_name, m}], field(m, ^field_name) in ^values)
+
+      :fuzz ->
+        Enum.reduce(items, query, fn
+          r_value_token(value: value), query ->
+            value = "%#{escape_string_for_like(value)}%"
+
+            query
+            |> where([_m, {^assoc_name, m}], fragment("? ILIKE ?", field(m, ^field_name), ^value))
+        end)
+
+      :nfuzz ->
+        Enum.reduce(items, query, fn
+          r_value_token(value: value), query ->
+            value = "%#{escape_string_for_like(value)}%"
+
+            query
+            |> where([_m, {^assoc_name, m}], fragment("? NOT ILIKE ?", field(m, ^field_name), ^value))
+        end)
     end
   end
 
-  def apply_type_filter(:integer, query, {:assoc, assoc_name, field_name}, {:partial, elements}) do
+  def apply_type_filter(
+    :integer,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_partial_token(items: elements)
+  ) do
     pattern = partial_to_like_pattern(elements)
 
     query
     |> where([_m, {^assoc_name, m}], fragment("?::text ILIKE ?", field(m, ^field_name), ^pattern))
   end
 
-  def apply_type_filter(:string, query, {:assoc, assoc_name, field_name}, {:partial, elements}) do
+  def apply_type_filter(
+    :string,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_partial_token(items: elements)
+  ) do
     pattern = partial_to_like_pattern(elements)
 
     query
     |> where([_m, {^assoc_name, m}], fragment("? ILIKE ?", field(m, ^field_name), ^pattern))
   end
 
-  def apply_type_filter(type, query, {:assoc, assoc_name, field_name}, {:range, {:infinity, {:value, b}}}) when type in @scalars do
+  def apply_type_filter(
+    type,
+    query,
+    {:assoc, assoc_name, field_name_a},
+    r_range_token(pair: {r_infinity_token(), r_pin_token(value: field_name_b)})
+  ) when type in @scalars do
+    query
+    |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) <= field(m, ^field_name_b))
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_range_token(pair: {r_infinity_token(), r_value_token(value: b)})
+  ) when type in @scalars do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^b)
   end
 
-  def apply_type_filter(type, query, {:assoc, assoc_name, field_name}, {:range, {{:value, a}, :infinity}}) when type in @scalars do
+  def apply_type_filter(
+    type,
+    query,
+    {:assoc, assoc_name, field_name_a},
+    r_range_token(pair: {r_pin_token(value: field_name_b), r_infinity_token()})
+  ) when is_atom(field_name_b) and type in @scalars do
+    query
+    |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) >= field(m, ^field_name_b))
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_range_token(pair: {r_value_token(value: a), r_infinity_token()})
+  ) when type in @scalars do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^a)
   end
 
-  def apply_type_filter(type, query, {:assoc, assoc_name, field_name}, {:range, {{:value, a}, {:value, b}}}) when type in @scalars do
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_range_token(pair: {r_token() = start_value, r_token() = end_value})
+  ) when type in @scalars do
+    query = apply_type_filter(type, query, key, r_range_token(pair: {start_value, r_infinity_token()}))
+    query = apply_type_filter(type, query, key, r_range_token(pair: {r_infinity_token(), end_value}))
     query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^a and
-                  field(m, ^field_name) <= ^b)
   end
 
   #
@@ -236,101 +341,10 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     :date,
     query,
     {:assoc, assoc_name, field_name},
-    {:value, %Date{} = value}
+    r_value_token(value: %Date{} = value)
   ) do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
-  end
-
-  def apply_type_filter(
-    :date,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {:infinity, end_value}}
-  ) do
-    end_date = value_to_date(end_value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^end_date)
-  end
-
-  def apply_type_filter(
-    :date,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {start_value, :infinity}}
-  ) do
-    start_date = value_to_date(start_value, :start)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_date)
-  end
-
-  def apply_type_filter(
-    :date,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {start_value, end_value}}
-  ) do
-    start_date = value_to_date(start_value, :start)
-    end_date = value_to_date(end_value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_date and
-                  field(m, ^field_name) <= ^end_date)
-  end
-
-  def apply_type_filter(
-    :date,
-    query,
-    key,
-    {kind, _value} = value
-  ) when kind in [:partial, :value] do
-    start_date = value_to_date(value, :start)
-    end_date = value_to_date(value, :end)
-    apply_type_filter(:date, query, key, {:range, {{:value, start_date}, {:value, end_date}}})
-  end
-
-  def apply_type_filter(
-    :date,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:cmp, {operator, value}}
-  ) do
-    case operator do
-      :gte ->
-        date = value_to_date(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^date)
-
-      :lte ->
-        date = value_to_date(value, :end)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^date)
-
-      :gt ->
-        date = value_to_date(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) > ^date)
-
-      :lt ->
-        date = value_to_date(value, :end)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) < ^date)
-
-      :neq ->
-        date = value_to_date(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) != ^date)
-
-      :eq ->
-        date = value_to_date(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^date)
-    end
   end
 
   #
@@ -340,103 +354,10 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     :time,
     query,
     {:assoc, assoc_name, field_name},
-    {:value, %Time{} = value}
+    r_value_token(value: %Time{} = value)
   ) do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
-  end
-
-  def apply_type_filter(
-    :time,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {:infinity, end_value}}
-  ) do
-    end_time = value_to_time(end_value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^end_time)
-  end
-
-  def apply_type_filter(
-    :time,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {start_value, :infinity}}
-  ) do
-    start_time = value_to_time(start_value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_time)
-  end
-
-  def apply_type_filter(
-    :time,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {start_value, end_value}}
-  ) do
-    start_time = value_to_time(start_value, :start)
-    end_time = value_to_time(end_value, :end)
-
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_time and
-                  field(m, ^field_name) <= ^end_time)
-  end
-
-  def apply_type_filter(
-    :time,
-    query,
-    key,
-    {kind, _value} = value
-  ) when kind in [:partial, :value] do
-    start_time = value_to_time(value, :start)
-    end_time = value_to_time(value, :end)
-
-    apply_type_filter(:time, query, key, {:range, {{:value, start_time}, {:value, end_time}}})
-  end
-
-  def apply_type_filter(
-    :time,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:cmp, {operator, value}}
-  ) do
-    case operator do
-      :gte ->
-        time = value_to_time(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^time)
-
-      :lte ->
-        time = value_to_time(value, :end)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^time)
-
-      :gt ->
-        time = value_to_time(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) > ^time)
-
-      :lt ->
-        time = value_to_time(value, :end)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) < ^time)
-
-      :neq ->
-        time = value_to_time(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) != ^time)
-
-      :eq ->
-        time = value_to_time(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^time)
-    end
   end
 
   #
@@ -446,103 +367,10 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     :naive_datetime,
     query,
     {:assoc, assoc_name, field_name},
-    {:value, %NaiveDateTime{} = value}
+    r_value_token(value: %NaiveDateTime{} = value)
   ) do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
-  end
-
-  def apply_type_filter(
-    :naive_datetime,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {:infinity, value}}
-  ) do
-    end_datetime = value_to_naive_datetime(value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^end_datetime)
-  end
-
-  def apply_type_filter(
-    :naive_datetime,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {value, :infinity}}
-  ) do
-    start_datetime = value_to_naive_datetime(value, :start)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_datetime)
-  end
-
-  def apply_type_filter(
-    :naive_datetime,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:range, {start_value, end_value}}
-  ) do
-    start_datetime = value_to_naive_datetime(start_value, :start)
-    end_datetime = value_to_naive_datetime(end_value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_datetime and
-                  field(m, ^field_name) <= ^end_datetime)
-  end
-
-  def apply_type_filter(
-    :naive_datetime,
-    query,
-    {:assoc, assoc_name, field_name},
-    {kind, _value} = value
-  ) when kind in [:partial, :value] do
-    start_datetime = value_to_naive_datetime(value, :start)
-    end_datetime = value_to_naive_datetime(value, :end)
-    query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_datetime and
-                  field(m, ^field_name) <= ^end_datetime)
-  end
-
-  def apply_type_filter(
-    :naive_datetime,
-    query,
-    {:assoc, assoc_name, field_name},
-    {:cmp, {operator, value}}
-  ) do
-    case operator do
-      :gte ->
-        naive_datetime = value_to_naive_datetime(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^naive_datetime)
-
-      :lte ->
-        naive_datetime = value_to_naive_datetime(value, :end)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^naive_datetime)
-
-      :gt ->
-        naive_datetime = value_to_naive_datetime(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) > ^naive_datetime)
-
-      :lt ->
-        naive_datetime = value_to_naive_datetime(value, :end)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) < ^naive_datetime)
-
-      :neq ->
-        naive_datetime = value_to_naive_datetime(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) != ^naive_datetime)
-
-      :eq ->
-        naive_datetime = value_to_naive_datetime(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^naive_datetime)
-    end
   end
 
   #
@@ -552,102 +380,155 @@ defmodule ArtemisQL.Ecto.Filters.Assoc do
     :utc_datetime,
     query,
     {:assoc, assoc_name, field_name},
-    {:value, %DateTime{} = value}
+    r_value_token(value: %DateTime{} = value)
   ) do
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
   end
 
   def apply_type_filter(
-    :utc_datetime,
+    type,
+    query,
+    {:assoc, assoc_name, field_name_a},
+    r_range_token(pair: {r_infinity_token(), r_pin_token(value: field_name_b)})
+  ) when is_atom(field_name_b) and type in @date_or_time_types do
+    query
+    |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) <= field(m, ^field_name_b))
+  end
+
+  def apply_type_filter(
+    type,
     query,
     {:assoc, assoc_name, field_name},
-    {:range, {:infinity, value}}
-  ) do
-    end_datetime = value_to_utc_datetime(value, :end)
+    r_range_token(pair: {r_infinity_token(), r_token() = value})
+  ) when type in @date_or_time_types do
+    end_datetime = value_to_type_of(type, value, :end)
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^end_datetime)
   end
 
   def apply_type_filter(
-    :utc_datetime,
+    type,
+    query,
+    {:assoc, assoc_name, field_name_a},
+    r_range_token(pair: {r_pin_token(value: field_name_b), r_infinity_token()})
+  ) when type in @date_or_time_types do
+    query
+    |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) >= field(m, ^field_name_b))
+  end
+
+  def apply_type_filter(
+    type,
     query,
     {:assoc, assoc_name, field_name},
-    {:range, {value, :infinity}}
-  ) do
-    start_datetime = value_to_utc_datetime(value, :start)
+    r_range_token(pair: {r_token() = value, r_infinity_token()})
+  ) when type in @date_or_time_types do
+    start_datetime = value_to_type_of(type, value, :start)
     query
     |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_datetime)
   end
 
   def apply_type_filter(
-    :utc_datetime,
+    type,
     query,
-    {:assoc, assoc_name, field_name},
-    {:range, {start_value, end_value}}
-  ) do
-    start_datetime = value_to_utc_datetime(start_value, :start)
-    end_datetime = value_to_utc_datetime(end_value, :end)
+    {:assoc, _assoc_name, _field_name} = assoc,
+    r_range_token(pair: {r_token() = start_value, r_token() = end_value})
+  ) when type in @date_or_time_types do
+    query = apply_type_filter(type, query, assoc, {:range, {start_value, r_infinity_token()}})
+    query = apply_type_filter(type, query, assoc, {:range, {r_infinity_token(), end_value}})
     query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_datetime and
-                  field(m, ^field_name) <= ^end_datetime)
   end
 
   def apply_type_filter(
-    :utc_datetime,
+    type,
     query,
     {:assoc, assoc_name, field_name},
-    {kind, _value} = value
-  ) when kind in [:partial, :value] do
-    start_datetime = value_to_utc_datetime(value, :start)
-    end_datetime = value_to_utc_datetime(value, :end)
+    r_token(kind: kind) = token
+  ) when type in @date_or_time_types and kind in [:partial, :value] do
+    start_datetime = value_to_type_of(type, token, :start)
+    end_datetime = value_to_type_of(type, token, :end)
     query
-    |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^start_datetime and
-                  field(m, ^field_name) <= ^end_datetime)
+    |> where([_m, {^assoc_name, m}],
+      field(m, ^field_name) >= ^start_datetime and
+      field(m, ^field_name) <= ^end_datetime
+    )
   end
 
   def apply_type_filter(
-    :utc_datetime,
+    type,
     query,
-    {:assoc, assoc_name, field_name},
-    {:cmp, {operator, value}}
-  ) do
+    {:assoc, assoc_name, field_name_a},
+    r_cmp_token(pair: {operator, r_pin_token(value: field_name_b)})
+  ) when is_atom(field_name_b) and type in @date_or_time_types do
     case operator do
       :gte ->
-        utc_datetime = value_to_utc_datetime(value, :start)
-
         query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^utc_datetime)
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) >= field(m, ^field_name_b))
 
       :lte ->
-        utc_datetime = value_to_utc_datetime(value, :end)
-
         query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^utc_datetime)
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) <= field(m, ^field_name_b))
 
       :gt ->
-        utc_datetime = value_to_utc_datetime(value, :start)
-
         query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) > ^utc_datetime)
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) > field(m, ^field_name_b))
 
       :lt ->
-        utc_datetime = value_to_utc_datetime(value, :end)
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) < field(m, ^field_name_b))
+
+      val when val in [:neq, :nfuzz] ->
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) != field(m, ^field_name_b))
+
+      val when val in [:eq, :fuzz] ->
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name_a) == field(m, ^field_name_b))
+    end
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    {:assoc, assoc_name, field_name},
+    r_cmp_token(pair: {operator, r_token() = token})
+  ) when type in @date_or_time_types do
+    case operator do
+      :gte ->
+        value = value_to_type_of(type, token, :start)
 
         query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) < ^utc_datetime)
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name) >= ^value)
 
-      :neq ->
-        utc_datetime = value_to_utc_datetime(value, :start)
-
-        query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) != ^utc_datetime)
-
-      :eq ->
-        utc_datetime = value_to_utc_datetime(value, :start)
+      :lte ->
+        value = value_to_type_of(type, token, :end)
 
         query
-        |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^utc_datetime)
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name) <= ^value)
+
+      :gt ->
+        value = value_to_type_of(type, token, :start)
+
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name) > ^value)
+
+      :lt ->
+        value = value_to_type_of(type, token, :end)
+
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name) < ^value)
+
+      val when val in [:neq, :nfuzz] ->
+        value = value_to_type_of(type, token, :start)
+
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name) != ^value)
+
+      val when val in [:eq, :fuzz] ->
+        value = value_to_type_of(type, token, :start)
+
+        query
+        |> where([_m, {^assoc_name, m}], field(m, ^field_name) == ^value)
     end
   end
 end

@@ -25,6 +25,7 @@ defmodule ArtemisQL.EncoderTest do
         p:..
         x:null y:true z:false
         X:NULL Y:TRUE Z:FALSE
+        w:^y
         """)
 
       assert {
@@ -51,6 +52,7 @@ defmodule ArtemisQL.EncoderTest do
             "p:..",
             "x:NULL y:true z:false",
             "X:NULL Y:TRUE Z:FALSE",
+            "w:^y",
           ]
           |> Enum.intersperse(" ")
         )

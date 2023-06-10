@@ -16,6 +16,8 @@ defmodule ArtemisQL.Types do
 
   alias ArtemisQL.SearchMap
 
+  import ArtemisQL.Tokens
+
   @type partial_date ::
     {:partial_date, {year::integer(), month::integer()}}
     | {:partial_date, {year::integer()}}
@@ -74,7 +76,7 @@ defmodule ArtemisQL.Types do
   end
 
   def transform_pair(key, value, %SearchMap{} = search_map) when is_atom(key) do
-    handle_pair_transform(search_map.pair_transform[key], key, value)
+    handle_pair_transform(search_map.pair_transform[key], key, value, search_map)
   end
 
   def transform_pair(
@@ -87,25 +89,25 @@ defmodule ArtemisQL.Types do
         res
 
       other ->
-        handle_pair_transform(other, key, value)
+        handle_pair_transform(other, key, value, search_map)
     end
   end
 
-  def handle_pair_transform(type, key, {:group, [item]}) do
-    case handle_pair_transform(type, key, item) do
-      {:ok, key, value} ->
-        {:ok, key, {:group, [value]}}
+  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) do
+    case handle_pair_transform(type, key, item, search_map) do
+      {:ok, key, r_token() = value_token} ->
+        {:ok, key, r_group_token(items: [value_token])}
 
       {:abort, reason} ->
         {:abort, reason}
     end
   end
 
-  def handle_pair_transform(type, key, {:list, items}) do
+  def handle_pair_transform(type, key, r_list_token(items: items), search_map) do
     {key, items} =
       Enum.reduce(items, {key, []}, fn value, {key, acc} ->
-        case handle_pair_transform(type, key, value) do
-          {:ok, key, value} ->
+        case handle_pair_transform(type, key, value, search_map) do
+          {:ok, key, r_token() = value} ->
             {key, [value | acc]}
 
           {:abort, reason} ->
@@ -113,119 +115,133 @@ defmodule ArtemisQL.Types do
         end
       end)
 
-    {:ok, key, {:list, Enum.reverse(items)}}
+    {:ok, key, r_list_token(items: Enum.reverse(items))}
   end
 
-  def handle_pair_transform(type, key, {:cmp, {operator, value}}) do
-    case handle_pair_transform(type, key, value) do
-      {:ok, key, value} ->
-        {:ok, key, {:cmp, {operator, value}}}
+  def handle_pair_transform(type, key, r_cmp_token(pair: {operator, value}, meta: meta), search_map) do
+    case handle_pair_transform(type, key, value, search_map) do
+      {:ok, key, r_token() = value} ->
+        {:ok, key, r_cmp_token(pair: {operator, value}, meta: meta)}
 
       {:abort, reason} ->
         {:abort, reason}
     end
   end
 
-  def handle_pair_transform(nil, key, value) do
+  def handle_pair_transform(nil, key, r_token() = value, _search_map) do
     {:ok, key, value}
   end
 
-  def handle_pair_transform({:type, module}, key, value) do
-    handle_pair_transform({:type, module, %{}}, key, value)
+  def handle_pair_transform({:type, module}, key, value, search_map) do
+    handle_pair_transform({:type, module, %{}}, key, value, search_map)
   end
 
-  def handle_pair_transform({:type, module, params}, key, value) do
-    handle_type_module_transform(module, params, key, value)
+  def handle_pair_transform({:type, module, params}, key, value, search_map) do
+    handle_type_module_transform(module, params, key, value, search_map)
   end
 
-  def handle_pair_transform({:apply, module, function_name, args}, key, value) do
+  def handle_pair_transform({:apply, module, function_name, args}, key, value, _search_map) do
     :erlang.apply(module, function_name, [key, value | args])
   end
 
-  def handle_pair_transform(function, key, value) when is_function(function) do
+  def handle_pair_transform(function, key, value, _search_map) when is_function(function, 2) do
     function.(key, value)
   end
 
-  def handle_type_module_transform(:binary_id, _params, key, value) do
-    {:ok, key, apply_to_value(value, &to_string/1)}
+  def handle_type_module_transform(:binary_id, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &to_string/1, search_map)}
   end
 
-  def handle_type_module_transform(:boolean, _params, key, value) do
-    {:ok, key, apply_to_value(value, &to_boolean/1)}
+  def handle_type_module_transform(:boolean, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &to_boolean/1, search_map)}
   end
 
-  def handle_type_module_transform(:integer, _params, key, value) do
-    {:ok, key, apply_to_value(value, &String.to_integer/1)}
+  def handle_type_module_transform(:integer, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &String.to_integer/1, search_map)}
   end
 
-  def handle_type_module_transform(:float, _params, key, value) do
-    {:ok, key, apply_to_value(value, &String.to_float/1)}
+  def handle_type_module_transform(:float, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &String.to_float/1, search_map)}
   end
 
-  def handle_type_module_transform(:decimal, _params, key, value) do
-    {:ok, key, apply_to_value(value, &Decimal.new/1)}
+  def handle_type_module_transform(:decimal, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &Decimal.new/1, search_map)}
   end
 
-  def handle_type_module_transform(:atom, _params, key, value) do
-    {:ok, key, apply_to_value(value, &String.to_existing_atom/1)}
+  def handle_type_module_transform(:atom, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &String.to_existing_atom/1, search_map)}
   end
 
-  def handle_type_module_transform(:string, _params, key, value) do
-    {:ok, key, apply_to_value(value, &normalize_value/1)}
+  def handle_type_module_transform(:string, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &normalize_value/1, search_map)}
   end
 
-  def handle_type_module_transform(:date, _params, key, value) do
-    {:ok, key, apply_to_value(value, &parse_date/1)}
+  def handle_type_module_transform(:date, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &parse_date/1, search_map)}
   end
 
-  def handle_type_module_transform(:time, _params, key, value) do
-    {:ok, key, apply_to_value(value, &parse_time/1)}
+  def handle_type_module_transform(:time, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &parse_time/1, search_map)}
   end
 
-  def handle_type_module_transform(:naive_datetime, _params, key, value) do
-    {:ok, key, apply_to_value(value, &parse_naive_datetime/1)}
+  def handle_type_module_transform(:naive_datetime, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &parse_naive_datetime/1, search_map)}
   end
 
-  def handle_type_module_transform(:utc_datetime, _params, key, value) do
-    {:ok, key, apply_to_value(value, &parse_datetime/1)}
+  def handle_type_module_transform(:utc_datetime, _params, key, value, search_map) do
+    {:ok, key, apply_to_value(value, &parse_datetime/1, search_map)}
   end
 
-  def apply_to_value(:infinity, _callback) do
-    :infinity
+  def apply_to_value(
+    r_pin_token(value: {kind, value, _}, meta: meta),
+    _callback,
+    search_map
+  ) when kind in [:word, :quote] do
+    case whitelist_key(value, search_map) do
+      {:ok, value} when is_atom(value) ->
+        r_pin_token(value: value, meta: meta)
+    end
   end
 
-  def apply_to_value(:wildcard, _callback) do
-    :wildcard
+  def apply_to_value(r_infinity_token() = token, _callback, _search_map) do
+    token
   end
 
-  def apply_to_value(:NULL, _callback) do
-    nil
+  def apply_to_value(r_wildcard_token() = token, _callback, _search_map) do
+    token
   end
 
-  def apply_to_value({:cmp, {operator, value}}, callback) do
-    {:cmp, {operator, apply_to_value(value, callback)}}
+  def apply_to_value(r_null_token() = token, _callback, _search_map) do
+    token
   end
 
-  def apply_to_value({kind, value}, callback) when kind in [:word, :quote] do
+  def apply_to_value(r_cmp_token(pair: {operator, value}, meta: meta), callback, search_map) do
+    r_cmp_token(pair: {operator, apply_to_value(value, callback, search_map)}, meta: meta)
+  end
+
+  def apply_to_value({kind, value, meta}, callback, _search_map) when kind in [:word, :quote] do
     value = callback.(value)
-    {:value, value}
+    r_value_token(value: value, meta: meta)
   end
 
-  def apply_to_value({:partial, elements}, callback) do
-    {:partial, Enum.map(elements, fn
-      :wildcard ->
-        :wildcard
+  def apply_to_value(r_partial_token(items: elements, meta: meta), callback, search_map) do
+    r_partial_token(items: Enum.map(elements, fn
+      r_wildcard_token() = token ->
+        token
 
-      :any_char ->
-        :any_char
+      r_any_char_token() = token ->
+        token
 
-      element ->
-        apply_to_value(element, callback)
-    end)}
+      {_kind, _value, _meta} = element ->
+        apply_to_value(element, callback, search_map)
+    end), meta: meta)
   end
 
-  def apply_to_value({:range, {a, b}}, callback) do
-    {:range, {apply_to_value(a, callback), apply_to_value(b, callback)}}
+  def apply_to_value(r_range_token(pair: {a, b}, meta: meta), callback, search_map) do
+    r_range_token(
+      pair: {apply_to_value(a, callback, search_map), apply_to_value(b, callback, search_map)},
+      meta: meta
+    )
   end
 
   def parse_date(<<"@",_::binary>> = str) do
@@ -234,7 +250,7 @@ defmodule ArtemisQL.Types do
     |> DateTime.to_date()
   end
 
-  def parse_date(str) do
+  def parse_date(str) when is_binary(str) do
     case Date.from_iso8601(str) do
       {:ok, date} ->
         date
@@ -329,7 +345,7 @@ defmodule ArtemisQL.Types do
     |> DateTime.to_date()
   end
 
-  def parse_datetime(str) do
+  def parse_datetime(str) when is_binary(str) do
     case DateTime.from_iso8601(str) do
       {:ok, datetime, _} ->
         datetime
@@ -535,125 +551,141 @@ defmodule ArtemisQL.Types do
   #
   # Casts
   #
-  def value_to_date({:value, %Date{} = date}, _) do
+  # def value_to_date({:pin, _} = value, _) do
+  #   value
+  # end
+
+  def value_to_date(r_value_token(value: %Date{} = date), _) do
     date
   end
 
-  def value_to_date({:value, {:partial_date, {year, month}}}, :start) do
+  def value_to_date(r_value_token(value: {:partial_date, {year, month}}), :start) do
     %Date{year: year, month: month, day: 1}
   end
 
-  def value_to_date({:value, {:partial_date, {year, month}}}, :end) do
+  def value_to_date(r_value_token(value: {:partial_date, {year, month}}), :end) do
     Timex.end_of_month(%Date{year: year, month: month, day: 1})
   end
 
-  def value_to_date({:value, {:partial_date, {year}}}, :start) do
+  def value_to_date(r_value_token(value: {:partial_date, {year}}), :start) do
     Timex.beginning_of_year(year)
   end
 
-  def value_to_date({:value, {:partial_date, {year}}}, :end) do
+  def value_to_date(r_value_token(value: {:partial_date, {year}}), :end) do
     Timex.end_of_year(year)
   end
 
-  def value_to_time({:value, %Time{} = time}, _) do
+  # def value_to_time({:pin, _} = value, _) do
+  #   value
+  # end
+
+  def value_to_time(r_value_token(value: %Time{} = time), _) do
     time
   end
 
-  def value_to_time({:value, {:partial_time, {hour, minute}}}, :start) do
+  def value_to_time(r_value_token(value: {:partial_time, {hour, minute}}), :start) do
     %Time{hour: hour, minute: minute, second: 0}
   end
 
-  def value_to_time({:value, {:partial_time, {hour, minute}}}, :end) do
+  def value_to_time(r_value_token(value: {:partial_time, {hour, minute}}), :end) do
     %Time{hour: hour, minute: minute, second: 59}
   end
 
-  def value_to_time({:value, {:partial_time, {hour}}}, :start) do
+  def value_to_time(r_value_token(value: {:partial_time, {hour}}), :start) do
     %Time{hour: hour, minute: 0, second: 0}
   end
 
-  def value_to_time({:value, {:partial_time, {hour}}}, :end) do
+  def value_to_time(r_value_token(value: {:partial_time, {hour}}), :end) do
     %Time{hour: hour, minute: 59, second: 59}
   end
 
-  def value_to_naive_datetime({:value, %NaiveDateTime{} = value}, _) do
+  # def value_to_naive_datetime({:pin, _} = value, _) do
+  #   value
+  # end
+
+  def value_to_naive_datetime(r_value_token(value: %NaiveDateTime{} = value), _) do
     value
   end
 
-  def value_to_naive_datetime({:value, %Date{} = date}, :start) do
+  def value_to_naive_datetime(r_value_token(value: %Date{} = date), :start) do
     %NaiveDateTime{year: date.year, month: date.month, day: date.day, hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
   end
 
-  def value_to_naive_datetime({:value, %Date{} = date}, :end) do
+  def value_to_naive_datetime(r_value_token(value: %Date{} = date), :end) do
     %NaiveDateTime{year: date.year, month: date.month, day: date.day, hour: 23, minute: 59, second: 59, microsecond: {999999, 6}}
   end
 
-  def value_to_naive_datetime({:value, {:partial_date, {year, month}}}, :start) do
+  def value_to_naive_datetime(r_value_token(value: {:partial_date, {year, month}}), :start) do
     %NaiveDateTime{year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
   end
 
-  def value_to_naive_datetime({:value, {:partial_date, {year}}}, :start) do
+  def value_to_naive_datetime(r_value_token(value: {:partial_date, {year}}), :start) do
     %NaiveDateTime{year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
   end
 
-  def value_to_naive_datetime({:value, {:partial_date, {year, month}}}, :end) do
+  def value_to_naive_datetime(r_value_token(value: {:partial_date, {year, month}}), :end) do
     Timex.end_of_month(%NaiveDateTime{year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
-  def value_to_naive_datetime({:value, {:partial_date, {year}}}, :end) do
+  def value_to_naive_datetime(r_value_token(value: {:partial_date, {year}}), :end) do
     Timex.end_of_year(%NaiveDateTime{year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
-  def value_to_naive_datetime({:value, {:partial_naive_datetime, date, time}}, range_point) do
-    date = value_to_date({:value, date}, range_point)
-    time = value_to_time({:value, time}, range_point)
+  def value_to_naive_datetime(r_value_token(value: {:partial_naive_datetime, date, time}), range_point) do
+    date = value_to_date(r_value_token(value: date), range_point)
+    time = value_to_time(r_value_token(value: time), range_point)
 
     %NaiveDateTime{year: date.year, month: date.month, day: date.day,
                    hour: time.hour, minute: time.minute, second: time.second,
                    microsecond: time.microsecond}
   end
 
-  def value_to_utc_datetime({:value, %NaiveDateTime{} = value}, _) do
+  # def value_to_utc_datetime({:pin, _} = value, _) do
+  #   value
+  # end
+
+  def value_to_utc_datetime(r_value_token(value: %NaiveDateTime{} = value), _) do
     {:ok, datetime} = DateTime.from_naive(value, "Etc/UTC")
     datetime
   end
 
-  def value_to_utc_datetime({:value, %DateTime{} = value}, _) do
+  def value_to_utc_datetime(r_value_token(value: %DateTime{} = value), _) do
     value
   end
 
-  def value_to_utc_datetime({:value, %Date{} = date}, :start) do
+  def value_to_utc_datetime(r_value_token(value: %Date{} = date), :start) do
     dt = DateTime.utc_now()
     %DateTime{dt | year: date.year, month: date.month, day: date.day, hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
   end
 
-  def value_to_utc_datetime({:value, %Date{} = date}, :end) do
+  def value_to_utc_datetime(r_value_token(value: %Date{} = date), :end) do
     dt = DateTime.utc_now()
     %DateTime{dt | year: date.year, month: date.month, day: date.day, hour: 23, minute: 59, second: 59, microsecond: {999999, 6}}
   end
 
-  def value_to_utc_datetime({:value, {:partial_date, {year, month}}}, :start) do
+  def value_to_utc_datetime(r_value_token(value: {:partial_date, {year, month}}), :start) do
     dt = DateTime.utc_now()
     %DateTime{dt | year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
   end
 
-  def value_to_utc_datetime({:value, {:partial_date, {year}}}, :start) do
+  def value_to_utc_datetime(r_value_token(value: {:partial_date, {year}}), :start) do
     dt = DateTime.utc_now()
     %DateTime{dt | year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
   end
 
-  def value_to_utc_datetime({:value, {:partial_date, {year, month}}}, :end) do
+  def value_to_utc_datetime(r_value_token(value: {:partial_date, {year, month}}), :end) do
     dt = DateTime.utc_now()
     Timex.end_of_month(%DateTime{dt | year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
-  def value_to_utc_datetime({:value, {:partial_date, {year}}}, :end) do
+  def value_to_utc_datetime(r_value_token(value: {:partial_date, {year}}), :end) do
     dt = DateTime.utc_now()
     Timex.end_of_year(%DateTime{dt | year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
-  def value_to_utc_datetime({:value, {:partial_datetime, date, time}}, range_point) do
-    date = value_to_date({:value, date}, range_point)
-    time = value_to_time({:value, time}, range_point)
+  def value_to_utc_datetime(r_value_token(value: {:partial_datetime, date, time}), range_point) do
+    date = value_to_date(r_value_token(value: date), range_point)
+    time = value_to_time(r_value_token(value: time), range_point)
 
     dt = DateTime.utc_now()
 
@@ -663,5 +695,21 @@ defmodule ArtemisQL.Types do
         hour: time.hour, minute: time.minute, second: time.second,
         microsecond: time.microsecond
     }
+  end
+
+  def value_to_type_of(:date, token, range_point) do
+    value_to_date(token, range_point)
+  end
+
+  def value_to_type_of(:time, token, range_point) do
+    value_to_time(token, range_point)
+  end
+
+  def value_to_type_of(:naive_datetime, token, range_point) do
+    value_to_naive_datetime(token, range_point)
+  end
+
+  def value_to_type_of(:utc_datetime, token, range_point) do
+    value_to_utc_datetime(token, range_point)
   end
 end

@@ -5,6 +5,8 @@ defmodule ArtemisQL.QueryTransformerTest do
     schema "other_schema" do
       timestamps(type: :utc_datetime_usec)
 
+      field :expired_at, :utc_datetime_usec
+
       field :name, :string
 
       field :other_field, :string
@@ -16,6 +18,8 @@ defmodule ArtemisQL.QueryTransformerTest do
 
     schema "query_schema" do
       timestamps(type: :utc_datetime_usec)
+
+      field :expired_at, :utc_datetime_usec
 
       field :name, :string
       field :int, :integer
@@ -41,6 +45,7 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_key_whitelist "id"
     def_key_whitelist "inserted_at"
     def_key_whitelist "updated_at"
+    def_key_whitelist "expired_at"
     def_key_whitelist "name"
     def_key_whitelist "int"
     def_key_whitelist "flt"
@@ -57,6 +62,7 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_pair_transform :id, {:type, :binary_id}
     def_pair_transform :inserted_at, {:type, :utc_datetime}
     def_pair_transform :updated_at, {:type, :utc_datetime}
+    def_pair_transform :expired_at, {:type, :utc_datetime}
     def_pair_transform :name, {:type, :string}
     def_pair_transform :int, {:type, :integer}
     def_pair_transform :flt, {:type, :float}
@@ -73,6 +79,7 @@ defmodule ArtemisQL.QueryTransformerTest do
     def_pair_filter :id, {:type, :string}
     def_pair_filter :inserted_at, {:type, :utc_datetime}
     def_pair_filter :updated_at, {:type, :utc_datetime}
+    def_pair_filter :expired_at, {:type, :utc_datetime}
     def_pair_filter :name, {:type, :string}
     def_pair_filter :int, {:type, :integer}
     def_pair_filter :flt, {:type, :float}
@@ -107,11 +114,14 @@ defmodule ArtemisQL.QueryTransformerTest do
     end
   end
 
+  import ArtemisQL.Tokens
+
   @search_map %ArtemisQL.SearchMap{
     key_whitelist: %{
       "id" => true,
       "inserted_at" => true,
       "updated_at" => true,
+      "expired_at" => true,
       "name" => true,
       "int" => true,
       "flt" => true,
@@ -129,6 +139,7 @@ defmodule ArtemisQL.QueryTransformerTest do
       id: {:type, :binary_id},
       inserted_at: {:type, :utc_datetime},
       updated_at: {:type, :utc_datetime},
+      expired_at: {:type, :utc_datetime},
       name: {:type, :string},
       int: {:type, :integer},
       flt: {:type, :float},
@@ -147,6 +158,7 @@ defmodule ArtemisQL.QueryTransformerTest do
       id: {:type, :string},
       inserted_at: {:type, :utc_datetime},
       updated_at: {:type, :utc_datetime},
+      expired_at: {:type, :utc_datetime},
       name: {:type, :string},
       int: {:type, :integer},
       flt: {:type, :float},
@@ -170,6 +182,7 @@ for type <- [:struct, :module] do
         ArtemisQL.decode("""
         inserted_at:\"2020-01-27T19:36:55Z\"
         updated_at:2020-01-27
+        expired_at:>^inserted_at
         name:Aname
         int:23
         flt:\"23.0\"
@@ -186,8 +199,6 @@ for type <- [:struct, :module] do
       query =
         QuerySchema
         |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
-
-      IO.inspect query
 
       assert %Ecto.Query{} = query
     end
@@ -275,7 +286,7 @@ for type <- [:struct, :module] do
 
   describe "(#{type}) field type fuzzing" do
     for {field_key, {:type, field_type}} <- @search_map.pair_transform do
-      test "fuzz field #{field_key} of type #{field_type}" do
+      test "fuzz field `#{field_key}` of type `#{field_type}`" do
         fuzz_field(unquote(field_key), get_search_map(unquote(type)))
       end
     end
@@ -299,7 +310,7 @@ end
 
   defp fuzz_field_nullability(key, search_map) do
     search_list = [
-      {:pair, {{:word, to_string(key)}, :NULL}}
+      {:pair, {r_word_token(value: to_string(key)), r_null_token()}, nil}
     ]
 
     query =
@@ -310,17 +321,15 @@ end
   end
 
   defp fuzz_field_nullability_comparison(key, search_map) do
-    for op <- [:eq, :neq, :lt, :lte, :gt, :gte] do
+    for op <- [:eq, :neq, :lt, :lte, :gt, :gte, :fuzz, :nfuzz] do
       search_list = [
         {
           :pair,
           {
-            {:word, to_string(key)},
-            {:cmp, {
-              op,
-              :NULL
-            }}
-          }
+            r_word_token(value: to_string(key)),
+            r_cmp_token(pair: {op, r_null_token()}),
+          },
+          nil
         }
       ]
 
@@ -333,7 +342,7 @@ end
   end
 
   defp fuzz_field_comparison(key, search_map) do
-    for op <- [nil, :eq, :neq, :lt, :lte, :gt, :gte] do
+    for op <- [nil, :eq, :neq, :lt, :lte, :gt, :gte, :fuzz, :nfuzz] do
       {:type, type} = @search_map.pair_transform[key]
       {:ok, value} = ArtemisQL.Encoder.encode_value(ArtemisQL.Random.random_value_of_type(type))
 
@@ -377,20 +386,21 @@ end
           ArtemisQL.Random.random_value_of_type(type)
       end)
 
-    {:ok, search_list} = ArtemisQL.query_list_to_search_list([
-      %{
-        key: to_string(key),
-        value: case type do
-          :string ->
-            %{
-              :"$partial" => value,
-            }
+    assert {:ok, search_list} =
+      ArtemisQL.query_list_to_search_list([
+        %{
+          key: to_string(key),
+          value: case type do
+            :string ->
+              %{
+                :"$partial" => value,
+              }
 
-          _ ->
-            value
-        end
-      }
-    ])
+            _ ->
+              value
+          end
+        }
+      ])
 
     query =
       QuerySchema

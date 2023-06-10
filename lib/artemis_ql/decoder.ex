@@ -3,6 +3,9 @@ defmodule ArtemisQL.Decoder do
   Decodes a query string into a list of tokens
   """
   import ArtemisQL.Tokenizer
+  import ArtemisQL.Tokens
+
+  @type token_meta :: ArtemisQL.Tokenizer.token_meta()
 
   @type word_token :: ArtemisQL.Tokenizer.word_token()
 
@@ -10,19 +13,21 @@ defmodule ArtemisQL.Decoder do
 
   @type key_token :: word_token() | quoted_string_token()
 
-  @type range_token :: {:range, {:infinity | key_token(), :infinity | key_token()}}
+  @type infinity_token :: {:infinity, nil, token_meta()}
 
-  @type list_token :: {:list, [search_item()]}
+  @type range_token :: {:range, {infinity_token() | key_token(), infinity_token() | key_token()}, token_meta()}
 
-  @type pair_token :: {:pair, {key::key_token(), value::search_item()}}
+  @type list_token :: {:list, [search_item()], token_meta()}
 
-  @type partial_token :: {:partial, [key_token() | :wildcard | :any_char]}
+  @type pair_token :: {:pair, {key::key_token(), value::search_item()}, token_meta()}
 
-  @type search_item :: {:group, [search_item()]}
-                     | {:and, {search_item(), search_item()}}
-                     | {:or, {search_item(), search_item()}}
+  @type partial_token :: {:partial, [key_token() | :wildcard | :any_char], token_meta()}
+
+  @type search_item :: {:group, [search_item()], token_meta()}
+                     | {:and, {search_item(), search_item()}, token_meta()}
+                     | {:or, {search_item(), search_item()}, token_meta()}
                      | {:not, search_item()}
-                     | :NULL
+                     | {:NULL, nil, token_meta()}
                      | pair_token()
                      | list_token()
                      | range_token()
@@ -31,11 +36,13 @@ defmodule ArtemisQL.Decoder do
 
   @type search_list :: [search_item()]
 
-  @type token :: :NULL
-               | :AND
-               | :OR
-               | :NOT
-               | ArtemisQL.Tokenizer.token()
+  @type token :: {:NULL, nil, token_meta()}
+               | {:AND, nil, token_meta()}
+               | {:OR, nil, token_meta()}
+               | {:NOT, nil, token_meta()}
+               | {:pin, word_token() | quoted_string_token()}
+               | word_token()
+               | quoted_string_token()
 
   @type tokens :: [token()]
 
@@ -45,8 +52,8 @@ defmodule ArtemisQL.Decoder do
   @spec decode(String.t()) :: {:ok, search_list(), rest::String.t()} | {:error, term}
   def decode(blob) when is_binary(blob) do
     case tokenize_all(blob) do
-      {:ok, tokens, rest} ->
-        tokens = token_transformer(tokens, [])
+      {:ok, tokens, _meta, rest} ->
+        tokens = parse_tokens(tokens, [])
 
         decode_and_compact_tokens(tokens, rest)
 
@@ -75,7 +82,7 @@ defmodule ArtemisQL.Decoder do
     {:ok, Enum.reverse(acc), []}
   end
 
-  defp decode_all_tokens([:space | tokens], acc) do
+  defp decode_all_tokens([r_space_token() | tokens], acc) do
     decode_all_tokens(tokens, acc)
   end
 
@@ -89,62 +96,62 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_token([token | tokens]) when token in [:AND, :OR, :NOT, :NULL] do
+  defp decode_token([r_token(kind: kind) = token | tokens]) when kind in [:AND, :OR, :NOT, :NULL] do
     {:ok, token, tokens}
   end
 
-  defp decode_token([{:group, group_tokens} | tokens]) do
+  defp decode_token([r_group_token(items: group_tokens, meta: meta) | tokens]) do
     case decode_all_tokens(group_tokens, []) do
       {:ok, group_tokens, []} ->
-        {:ok, {:group, group_tokens}, tokens}
+        {:ok, {:group, group_tokens, meta}, tokens}
 
       {:error, _reason, _tokens} = err ->
         err
     end
   end
 
-  defp decode_token([{:quote, _} = key, :pair_op | tokens]) do
+  defp decode_token([r_quote_token(meta: meta) = key_token, {:pair_op, _, _} | tokens]) do
     case decode_token(tokens) do
-      {:ok, value, tokens} ->
-        {:ok, {:pair, {key, value}}, tokens}
+      {:ok, r_token() = value_token, tokens} ->
+        {:ok, {:pair, {key_token, value_token}, meta}, tokens}
 
       {:error, _reason, _tokens} = err ->
         err
     end
   end
 
-  defp decode_token([{:word, _} = key, :pair_op | tokens]) do
+  defp decode_token([r_word_token(meta: meta) = key_token, {:pair_op, _, _} | tokens]) do
     case decode_token(tokens) do
-      {:ok, value, tokens} ->
-        {:ok, {:pair, {key, value}}, tokens}
+      {:ok, r_token() = value, tokens} ->
+        {:ok, {:pair, {key_token, value}, meta}, tokens}
 
       {:error, _reason, _tokens} = err ->
         err
     end
   end
 
-  defp decode_token([{:cmp, op} | tokens]) do
+  defp decode_token([r_cmp_op_token(value: op, meta: meta) | tokens]) do
     case decode_value(tokens) do
       {:ok, value, tokens} ->
-        {:ok, {:cmp, {op, value}}, tokens}
+        {:ok, r_cmp_token(pair: {op, value}, meta: meta), tokens}
 
       {:error, _reason, _tokens} = err ->
         err
     end
   end
 
-  defp decode_token([:range_op, :space | tokens]) do
-    {:ok, {:range, {:infinity, :infinity}}, tokens}
+  defp decode_token([r_token(kind: :range_op, meta: meta), r_space_token() | tokens]) do
+    {:ok, {:range, {r_infinity_token(), r_infinity_token()}, meta}, tokens}
   end
 
-  defp decode_token([:range_op]) do
-    {:ok, {:range, {:infinity, :infinity}}, []}
+  defp decode_token([r_token(kind: :range_op, meta: meta)]) do
+    {:ok, {:range, {r_infinity_token(), r_infinity_token()}, meta}, []}
   end
 
-  defp decode_token([:range_op | tokens]) do
+  defp decode_token([r_token(kind: :range_op, meta: meta) | tokens]) do
     case decode_value(tokens) do
       {:ok, value, tokens} ->
-        {:ok, {:range, {:infinity, value}}, tokens}
+        {:ok, {:range, {r_infinity_token(), value}, meta}, tokens}
 
       {:error, _reason, _tokens} = err ->
         err
@@ -156,25 +163,25 @@ defmodule ArtemisQL.Decoder do
       {:error, _reason, _tokens} = err ->
         err
 
-      {:ok, left, [:range_op, :space | tokens]} ->
-        {:ok, {:range, {left, :infinity}}, tokens}
+      {:ok, left, [r_token(kind: :range_op, meta: meta), r_space_token() | tokens]} ->
+        {:ok, r_range_token(pair: {left, r_infinity_token()}, meta: meta), tokens}
 
-      {:ok, left, [:range_op]} ->
-        {:ok, {:range, {left, :infinity}}, []}
+      {:ok, left, [r_token(kind: :range_op, meta: meta)]} ->
+        {:ok, r_range_token(pair: {left, r_infinity_token()}, meta: meta), []}
 
-      {:ok, left, [:range_op | tokens]} ->
+      {:ok, left, [r_token(kind: :range_op, meta: meta) | tokens]} ->
         case decode_value(tokens) do
           {:ok, right, tokens} ->
-            {:ok, {:range, {left, right}}, tokens}
+            {:ok, r_range_token(pair: {left, right}, meta: meta), tokens}
 
           {:error, _reason, _tokens} = err ->
             err
         end
 
-      {:ok, value, [:continuation_op | tokens]} ->
+      {:ok, value, [r_token(kind: :continuation_op, meta: meta) | tokens]} ->
         case decode_list(tokens) do
           {:ok, list, tokens} ->
-            {:ok, {:list, [value | list]}, tokens}
+            {:ok, r_list_token(items: [value | list], meta: meta), tokens}
 
           {:error, _reason, _tokens} = err ->
             err
@@ -194,10 +201,10 @@ defmodule ArtemisQL.Decoder do
       {:ok, nil, tokens} ->
         {:ok, Enum.reverse(acc), tokens}
 
-      {:ok, token, [:continuation_op | tokens]} ->
+      {:ok, token, [r_token(kind: :continuation_op) | tokens]} ->
         decode_list(tokens, [token | acc])
 
-      {:ok, token, [:space | _rest] = tokens} ->
+      {:ok, token, [r_space_token() | _rest] = tokens} ->
         {:ok, Enum.reverse([token | acc]), tokens}
 
       {:ok, token, []} ->
@@ -207,18 +214,18 @@ defmodule ArtemisQL.Decoder do
 
   defp decode_value(tokens, acc \\ [])
 
-  defp decode_value([{kind, _} = token | tokens], acc) when kind in [:word, :quote, :range, :cmp] do
+  defp decode_value([r_token(kind: kind) = token | tokens], acc) when kind in [:word, :quote, :range, :cmp, :pin] do
     decode_value(tokens, [token | acc])
   end
 
-  defp decode_value([{:group, _items} = token | tokens], acc) do
+  defp decode_value([r_group_token() = token | tokens], acc) do
     case decode_token([token]) do
-      {:ok, {:group, items}, []} ->
-        decode_value(tokens, [{:group, items} | acc])
+      {:ok, {:group, _items, _meta} = token, []} ->
+        decode_value(tokens, [token | acc])
     end
   end
 
-  defp decode_value([token | tokens], acc) when token in [:wildcard, :any_char, :NULL] do
+  defp decode_value([r_token(kind: kind) = token | tokens], acc) when kind in [:wildcard, :any_char, :NULL] do
     decode_value(tokens, [token | acc])
   end
 
@@ -226,15 +233,25 @@ defmodule ArtemisQL.Decoder do
     {:ok, value, tokens}
   end
 
-  defp decode_value(tokens, []) do
-    {:error, :no_valid_value_type, tokens}
+  defp decode_value([r_token() = token | tokens], []) do
+    {:error, {:no_valid_value_type, token}, tokens}
   end
 
   defp decode_value(tokens, acc) do
-    {:ok, {:partial, Enum.reverse(acc)}, tokens}
+    acc = Enum.reverse(acc)
+    meta =
+      case acc do
+        [] ->
+          nil
+
+        [r_token(meta: meta) | _] ->
+          meta
+      end
+
+    {:ok, r_partial_token(items: acc, meta: meta), tokens}
   end
 
-  defp maybe_compact_value({:group, list}) do
+  defp maybe_compact_value({:group, list, _meta}) do
     case logical_compaction(list) do
       {:ok, list} ->
         list
@@ -247,24 +264,24 @@ defmodule ArtemisQL.Decoder do
 
   defp logical_compaction(tokens)
 
-  defp logical_compaction([a, :AND | tokens]) do
+  defp logical_compaction([a, {:AND, _, meta} | tokens]) do
     case logical_compaction(tokens) do
       {:ok, b} ->
-        {:ok, [{:and, {maybe_compact_value(a), b}}]}
+        {:ok, [{:and, {maybe_compact_value(a), b}, meta}]}
     end
   end
 
-  defp logical_compaction([a, :OR | tokens]) do
+  defp logical_compaction([a, {:OR, _, meta} | tokens]) do
     case logical_compaction(tokens) do
       {:ok, b} ->
-        {:ok, [{:or, {maybe_compact_value(a), b}}]}
+        {:ok, [{:or, {maybe_compact_value(a), b}, meta}]}
     end
   end
 
-  defp logical_compaction([:NOT, a | tokens]) do
+  defp logical_compaction([{:NOT, _, meta}, a | tokens]) do
     case logical_compaction(tokens) do
       {:ok, tokens} ->
-        {:ok, [{:not, maybe_compact_value(a)} | tokens]}
+        {:ok, [{:not, maybe_compact_value(a), meta} | tokens]}
     end
   end
 
@@ -272,34 +289,38 @@ defmodule ArtemisQL.Decoder do
     {:ok, tokens}
   end
 
-  defp token_transformer([], acc) do
+  defp parse_tokens([], acc) do
     Enum.reverse(acc)
   end
 
-  defp token_transformer([{:word, value} | tokens], acc) do
+  defp parse_tokens([r_pin_token(meta: meta), {kind, _value, _meta} = token | tokens], acc) when kind in [:word, :quote] do
+    parse_tokens(tokens, [r_pin_token(value: token, meta: meta) | acc])
+  end
+
+  defp parse_tokens([{:word, value, meta} | tokens], acc) do
     case String.upcase(value) do
       "AND" ->
-        token_transformer(tokens, [:AND | acc])
+        parse_tokens(tokens, [{:AND, value, meta} | acc])
 
       "OR" ->
-        token_transformer(tokens, [:OR | acc])
+        parse_tokens(tokens, [{:OR, value, meta} | acc])
 
       "NOT" ->
-        token_transformer(tokens, [:NOT | acc])
+        parse_tokens(tokens, [{:NOT, value, meta} | acc])
 
       "NULL" ->
-        token_transformer(tokens, [:NULL | acc])
+        parse_tokens(tokens, [{:NULL, value, meta} | acc])
 
       _ ->
-        token_transformer(tokens, [{:word, value} | acc])
+        parse_tokens(tokens, [{:word, value, meta} | acc])
     end
   end
 
-  defp token_transformer([{:group, group_tokens} | tokens], acc) do
-    token_transformer(tokens, [{:group, token_transformer(group_tokens, [])} | acc])
+  defp parse_tokens([{:group, group_tokens, meta} | tokens], acc) do
+    parse_tokens(tokens, [{:group, parse_tokens(group_tokens, []), meta} | acc])
   end
 
-  defp token_transformer([token | tokens], acc) do
-    token_transformer(tokens, [token | acc])
+  defp parse_tokens([token | tokens], acc) do
+    parse_tokens(tokens, [token | acc])
   end
 end

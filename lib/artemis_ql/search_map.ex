@@ -1,8 +1,8 @@
 defmodule ArtemisQL.SearchMap.Module.Builder do
-  defmacro def_key_whitelist(key) do
+  defmacro def_allowed_key(key) do
     quote do
       @impl true
-      def key_whitelist(unquote(key) = val) do
+      def allowed_key(unquote(key) = val) do
         String.to_existing_atom(val)
       end
     end
@@ -28,7 +28,7 @@ defmodule ArtemisQL.SearchMap.IModule do
 
   @type type_or_module :: atom() | module()
 
-  @callback key_whitelist(String.t()) :: field_name() | boolean()
+  @callback allowed_key(String.t()) :: nil | field_name() | boolean()
 
   @callback pair_transform(field_name(), value::any()) ::
     {:ok, field_name(), value::any()}
@@ -71,11 +71,13 @@ defmodule ArtemisQL.SearchMap do
       end
 
       defoverridable [before_filter: 4, resolve: 2]
+
+      @before_compile ArtemisQL.SearchMap
     end
   end
 
   defstruct [
-    key_whitelist: %{},
+    allowed_keys: %{},
     pair_transform: %{},
     before_filter: nil,
     pair_filter: %{},
@@ -115,7 +117,7 @@ defmodule ArtemisQL.SearchMap do
           | pair_filter_func()
 
   @type t :: %__MODULE__{
-    key_whitelist: %{
+    allowed_keys: %{
       String.t() => field_name() | boolean(),
     },
     pair_transform: %{
@@ -131,4 +133,13 @@ defmodule ArtemisQL.SearchMap do
   }
 
   @type search_map :: t() | module()
+
+  defmacro __before_compile__(_env) do
+    quote do
+      @impl true
+      def allowed_key(_key) do
+        nil
+      end
+    end
+  end
 end

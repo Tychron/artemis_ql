@@ -4,16 +4,28 @@ defmodule ArtemisQL.Ecto.QueryError do
   """
   defexception [:reason]
 
-  def message(%__MODULE__{reason: {:key_not_found, key}}) do
+  alias ArtemisQL.Encoder
+
+  alias ArtemisQL.Errors.KeyNotFound
+  alias ArtemisQL.Errors.InvalidEnumValue
+  alias ArtemisQL.Errors.UnsupportedSearchTermForField
+
+  def message(%__MODULE__{reason: %KeyNotFound{key: key}}) do
     """
     A key was specified that does not exist in the search map provided:
       key: `#{key}`
     """
   end
 
-  def message(%__MODULE__{reason: {:not_valid_enum_value, key, value}}) do
+  def message(%__MODULE__{reason: %InvalidEnumValue{key: key, meta: %{value: value}}}) do
     """
-    `#{value}` is not a valid value for #{key}
+    #{inspect value} is not a valid value for `#{key}`
+    """
+  end
+
+  def message(%__MODULE__{reason: %UnsupportedSearchTermForField{key: key, token: token}}) do
+    """
+    `#{Encoder.encode([token])}` is not a valid search term for `#{key}`
     """
   end
 

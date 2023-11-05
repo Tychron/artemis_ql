@@ -1,3 +1,7 @@
+# 0.5.0
+
+* ?
+
 # 0.4.0
 
 * Added new `fuzz` and `nfuzz` operators, primarily to be used by the query list to support fuzzy or partial matches where wildcards are impossible to construct normally.

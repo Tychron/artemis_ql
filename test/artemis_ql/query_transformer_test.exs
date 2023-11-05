@@ -42,22 +42,22 @@ defmodule ArtemisQL.QueryTransformerTest do
   defmodule TestSearchMap do
     use ArtemisQL.SearchMap
 
-    def_key_whitelist "id"
-    def_key_whitelist "inserted_at"
-    def_key_whitelist "updated_at"
-    def_key_whitelist "expired_at"
-    def_key_whitelist "name"
-    def_key_whitelist "int"
-    def_key_whitelist "flt"
-    def_key_whitelist "dec"
-    def_key_whitelist "bool"
-    def_key_whitelist "time"
-    def_key_whitelist "date"
-    def_key_whitelist "naive"
-    def_key_whitelist "jsonb_value"
-    def_key_whitelist "jsonb_nested_value"
-    def_key_whitelist "other_field"
-    def_key_whitelist "other_name"
+    def_allowed_key "id"
+    def_allowed_key "inserted_at"
+    def_allowed_key "updated_at"
+    def_allowed_key "expired_at"
+    def_allowed_key "name"
+    def_allowed_key "int"
+    def_allowed_key "flt"
+    def_allowed_key "dec"
+    def_allowed_key "bool"
+    def_allowed_key "time"
+    def_allowed_key "date"
+    def_allowed_key "naive"
+    def_allowed_key "jsonb_value"
+    def_allowed_key "jsonb_nested_value"
+    def_allowed_key "other_field"
+    def_allowed_key "other_name"
 
     def_pair_transform :id, {:type, :binary_id}
     def_pair_transform :inserted_at, {:type, :utc_datetime}
@@ -116,8 +116,10 @@ defmodule ArtemisQL.QueryTransformerTest do
 
   import ArtemisQL.Tokens
 
+  alias ArtemisQL.Errors.KeyNotFound
+
   @search_map %ArtemisQL.SearchMap{
-    key_whitelist: %{
+    allowed_keys: %{
       "id" => true,
       "inserted_at" => true,
       "updated_at" => true,
@@ -177,6 +179,19 @@ defmodule ArtemisQL.QueryTransformerTest do
 
 for type <- [:struct, :module] do
   describe "(#{type}) to_ecto_query/3" do
+    test "can gracefully handle missing keys" do
+      {:ok, list, ""} =
+        ArtemisQL.decode("""
+        not_found:WHOOP
+        """)
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, %KeyNotFound{key: "not_found"}} = query
+    end
+
     test "can take a search list and query to produce a filtered query" do
       {:ok, list, ""} =
         ArtemisQL.decode("""

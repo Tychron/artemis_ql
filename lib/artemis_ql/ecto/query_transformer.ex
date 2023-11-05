@@ -12,14 +12,18 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   alias ArtemisQL.SearchMap
   alias ArtemisQL.Types
   alias ArtemisQL.Ecto.QueryTransformer.Context
+  alias ArtemisQL.Errors.KeyNotFound
+  alias ArtemisQL.Errors.InvalidEnumValue
+  alias ArtemisQL.Errors.UnsupportedSearchTermForField
 
   import ArtemisQL.Ecto.Filters
   import ArtemisQL.Tokens
 
   @type search_list :: ArtemisQL.Decoder.search_list()
 
-  @type abort_reason :: {:key_not_found, key::String.t()}
-                      | {:not_valid_enum_value, term()}
+  @type abort_reason :: KeyNotFound.t()
+                      | InvalidEnumValue.t()
+                      | UnsupportedSearchTermForField.t()
 
   @type abort_result :: {:abort, abort_reason()}
 
@@ -105,17 +109,26 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   end
 
   defp handle_item(
-    r_pair_token(pair: {{key_kind, key, _}, value_token}),
+    r_pair_token(pair: {{key_kind, key, _}, value_token}) = token,
     %Context{} = context
   ) when key_kind in [:word, :quote] do
-    case Types.whitelist_key(key, context.search_map) do
+    case Types.allowed_key(key, context.search_map) do
       :missing ->
         case Keyword.get(context.options, :allow_missing, false) do
           true ->
             {:cont, context}
 
           false ->
-            {:halt, {:abort, {:key_not_found, key}}}
+            reason = %KeyNotFound{
+              meta: %{
+                fn: :handle_item,
+              },
+              key: key,
+              token: token,
+              search_map: context.search_map,
+            }
+
+            {:halt, {:abort, reason}}
         end
 
       :skip ->

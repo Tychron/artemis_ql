@@ -6,7 +6,7 @@ Artermis QL is a search query parser and generator.
 
 ```
 %ArtemisQL.SearchMap{
-  key_whitelist: %{
+  allowed_keys: %{
     "id" => true,
   },
   pair_transform: %{

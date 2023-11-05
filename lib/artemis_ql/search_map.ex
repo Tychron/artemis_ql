@@ -142,4 +142,39 @@ defmodule ArtemisQL.SearchMap do
       end
     end
   end
+
+  defp normalize_key(key) when is_binary(key) do
+    key
+    |> String.downcase()
+  end
+
+  defp normalize_key(key) when is_atom(key) do
+    normalize_key(Atom.to_string(key))
+  end
+
+  def suggest_keys(%__MODULE__{} = search_map, key) do
+    normalized_key = normalize_key(key)
+
+    threshold =
+      if String.length(key) > 3 do
+        0.834
+      else
+        0.77
+      end
+
+    search_map.allowed_keys
+    |> Enum.map(fn {key, _} ->
+      key
+    end)
+    |> Enum.filter(fn allowed_key ->
+      String.jaro_distance(normalize_key(allowed_key), normalized_key) >= threshold
+    end)
+    |> Enum.sort_by(fn allowed_key ->
+      String.jaro_distance(allowed_key, normalized_key)
+    end)
+  end
+
+  def suggest_keys(_search_map, _key) do
+    []
+  end
 end

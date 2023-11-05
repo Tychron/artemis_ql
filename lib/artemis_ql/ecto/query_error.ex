@@ -10,11 +10,22 @@ defmodule ArtemisQL.Ecto.QueryError do
   alias ArtemisQL.Errors.InvalidEnumValue
   alias ArtemisQL.Errors.UnsupportedSearchTermForField
 
-  def message(%__MODULE__{reason: %KeyNotFound{key: key}}) do
-    """
-    A key was specified that does not exist in the search map provided:
-      key: `#{key}`
-    """
+  def message(%__MODULE__{reason: %KeyNotFound{key: key, search_map: search_map}}) do
+    suggestions = ArtemisQL.SearchMap.suggest_keys(search_map, key)
+
+    case suggestions do
+      [] ->
+        """
+        A key (`#{key}`) was specified that does not exist in the search map provided.
+        """
+
+      suggestions when is_list(suggestions) ->
+        """
+        A key (`#{key}`) was specified that does not exist in the search map provided.
+
+        Did you mean? #{Enum.join(suggestions, ", ")}
+        """
+    end
   end
 
   def message(%__MODULE__{reason: %InvalidEnumValue{key: key, meta: %{value: value}}}) do

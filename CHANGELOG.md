@@ -1,3 +1,10 @@
+# 0.6.0
+
+This version contains changes heading towards a quality of life improvement update that will be made later.
+
+* **Breaking Change** `key_whitelist` and related functions have been renamed to `allowed_key`, this also includes `key_whitelist` in `SearchMap` which has been renamed to `allowed_keys`
+* **Breaking Change** the abort/error tuple `{:key_not_found, key}` has be dropped in favour of the `ArtemisQL.Errors.KeyNotFound` struct which contains more information about the key and its related token
+
 # 0.5.0
 
 * ?

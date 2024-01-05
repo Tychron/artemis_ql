@@ -192,6 +192,6 @@ defmodule ArtemisQL.Encoder do
   end
 
   defp encode_quoted_string(str) when is_binary(str) do
-    ["\"", ArtemisQL.Util.escape_quoted_string(str), "\""]
+    ["\"", ArtemisQL.Utils.escape_quoted_string(str), "\""]
   end
 end

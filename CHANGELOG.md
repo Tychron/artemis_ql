@@ -1,3 +1,8 @@
+# 0.7.0
+
+* Improvement to tokenizer to handle more space characters
+* Quoted strings now support unicode escapes `\u{HEX}`
+
 # 0.6.0
 
 This version contains changes heading towards a quality of life improvement update that will be made later.

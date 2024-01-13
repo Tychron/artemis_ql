@@ -1,7 +1,13 @@
 # 0.7.0
 
+## General
+
 * Improvement to tokenizer to handle more space characters
 * Quoted strings now support unicode escapes `\u{HEX}`
+
+## ArtemisQL.Helpers
+
+* `partial_to_regex/1` > `partial_to_regex/2` now accepts Regex.compile options
 
 # 0.6.0
 

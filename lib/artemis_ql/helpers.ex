@@ -4,7 +4,7 @@ defmodule ArtemisQL.Helpers do
   """
   import ArtemisQL.Tokens
 
-  @spec partial_to_regex(list(), binary() | Keyword.t()) :: {:ok, Regex.t()} | {:error, any()}
+  @spec partial_to_regex(list(), binary() | [term()]) :: {:ok, Regex.t()} | {:error, any()}
   def partial_to_regex(partial, options \\ "") when is_list(partial) do
     [
       "\\A",
@@ -28,6 +28,7 @@ defmodule ArtemisQL.Helpers do
     |> Regex.compile(options)
   end
 
+  @spec partial_to_regex!(list(), binary() | [term()]) :: Regex.t()
   def partial_to_regex!(partial, options \\ "") do
     {:ok, regex} = partial_to_regex(partial, options)
     regex
@@ -36,7 +37,7 @@ defmodule ArtemisQL.Helpers do
   @doc """
   Compares the given string against a given partial
   """
-  @spec string_matches_partial?(binary(), list(), binary() | Keyword.t()) :: boolean()
+  @spec string_matches_partial?(binary(), list(), binary() | [term()]) :: boolean()
   def string_matches_partial?(str, partial, options \\ "") when is_list(partial) do
     String.match?(str, partial_to_regex!(partial, options))
   end

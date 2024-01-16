@@ -205,32 +205,32 @@ defmodule ArtemisQL.Utils do
 
   @spec escape_quoted_string(String.t()) :: iolist()
   def escape_quoted_string(str) do
-    do_escape_quoted_string(str, [])
+    do_escape_quoted_string(str)
   end
 
-  defp do_escape_quoted_string("", acc) do
-    Enum.reverse(acc)
+  defp do_escape_quoted_string("") do
+    []
   end
 
-  defp do_escape_quoted_string(<<c::utf8, rest::binary>>, acc) when c in [?", ?.] do
-    do_escape_quoted_string(rest, [<<c::utf8>>, "\\" | acc])
+  defp do_escape_quoted_string(<<c::utf8, rest::binary>>) when c in [?", ?.] do
+    [<<"\\", c::utf8>> | do_escape_quoted_string(rest)]
   end
 
-  defp do_escape_quoted_string(<<"\n", rest::binary>>, acc) do
-    do_escape_quoted_string(rest, ["\\n" | acc])
+  defp do_escape_quoted_string(<<"\n", rest::binary>>) do
+    ["\\n" | do_escape_quoted_string(rest)]
   end
 
-  defp do_escape_quoted_string(<<"\r", rest::binary>>, acc) do
-    do_escape_quoted_string(rest, ["\\r" | acc])
+  defp do_escape_quoted_string(<<"\r", rest::binary>>) do
+    ["\\r" | do_escape_quoted_string(rest)]
   end
 
-  defp do_escape_quoted_string(<<c::utf8, rest::binary>>, acc) when is_utf8_newline_like_char(c) do
+  defp do_escape_quoted_string(<<c::utf8, rest::binary>>) when is_utf8_newline_like_char(c) do
     hex = Integer.to_string(c, 16)
-    do_escape_quoted_string(rest, ["}", hex, "\\u{" | acc])
+    ["\\u{", hex, "}" | do_escape_quoted_string(rest)]
   end
 
-  defp do_escape_quoted_string(<<c::utf8, rest::binary>>, acc) do
-    do_escape_quoted_string(rest, [<<c::utf8>> | acc])
+  defp do_escape_quoted_string(<<c::utf8, rest::binary>>) do
+    [<<c::utf8>> | do_escape_quoted_string(rest)]
   end
 
   def should_quote_string?("") do

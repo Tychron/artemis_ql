@@ -106,6 +106,22 @@ defmodule ArtemisQL.Utils do
 
   defguard is_utf8_twochar_newline(c1, c2) when c1 == 0x0D and c2 == 0x0A
 
+  def utf8_char_byte_size(c) when c < 0x80 do
+    1
+  end
+
+  def utf8_char_byte_size(c) when c < 0x800 do
+    2
+  end
+
+  def utf8_char_byte_size(c) when c < 0x10000 do
+    3
+  end
+
+  def utf8_char_byte_size(c) when c >= 0x10000 do
+    4
+  end
+
   @doc """
   Converts a list to a binary, this also handles tokenizer specific escape tuples.
   """

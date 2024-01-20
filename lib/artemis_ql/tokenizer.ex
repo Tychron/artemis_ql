@@ -276,7 +276,7 @@ defmodule ArtemisQL.Tokenizer do
     meta
   ) when is_utf8_twochar_newline(c1, c2) do
     c = <<c1::utf8, c2::utf8>>
-    tokenize(rest, {:quote, [c | acc], qmeta}, next_line(meta, byte_size(c)))
+    tokenize(rest, {:quote, [c | acc], qmeta}, next_line(meta, 1))
   end
 
   def tokenize(
@@ -284,7 +284,7 @@ defmodule ArtemisQL.Tokenizer do
     {:quote, acc, qmeta},
     meta
   ) when is_utf8_newline_like_char(c) do
-    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_line(meta, byte_size(<<c::utf8>>)))
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_line(meta, utf8_char_byte_size(c)))
   end
 
   def tokenize(
@@ -292,7 +292,7 @@ defmodule ArtemisQL.Tokenizer do
     {:quote, acc, qmeta},
     meta
   ) when is_utf8_space_like_char(c) do
-    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, byte_size(<<c::utf8>>)))
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, utf8_char_byte_size(c)))
   end
 
   def tokenize(
@@ -300,7 +300,7 @@ defmodule ArtemisQL.Tokenizer do
     {:quote, acc, qmeta},
     meta
   ) when c > 0x20 and is_utf8_scalar_char(c) do
-    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, byte_size(<<c::utf8>>)))
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, utf8_char_byte_size(c)))
   end
 
   #
@@ -435,7 +435,7 @@ defmodule ArtemisQL.Tokenizer do
   defp trim_spaces(rest, meta, acc \\ [])
 
   defp trim_spaces(<<c::utf8, rest::binary>>, meta, acc) when is_utf8_space_like_char(c) do
-    trim_spaces(rest, next_col(meta, byte_size(<<c::utf8>>)), [<<c::utf8>> | acc])
+    trim_spaces(rest, next_col(meta, utf8_char_byte_size(c)), [<<c::utf8>> | acc])
   end
 
   defp trim_spaces(

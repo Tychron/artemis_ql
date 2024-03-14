@@ -35,6 +35,10 @@ defmodule ArtemisQL.Types do
   @type partial_naive_datetime ::
     {:partial_naive_datetime, Date.t(), partial_time()}
 
+  @type any_partial_datetime :: partial_datetime() | partial_date() | partial_time()
+
+  @type any_partial_naive_datetime :: partial_naive_datetime() | partial_date() | partial_time()
+
   @doc """
   Attempts to filter the given key against the search_map, if the key is not in the map
   then :missing is returned, if the key is in the map but is being actively rejected, then
@@ -454,13 +458,19 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def parse_date(<<"@",_::binary>> = str) do
+  def parse_date(str) do
+    parse_date(str, DateTime.utc_now())
+  end
+
+  def parse_date(str, now)
+
+  def parse_date(<<"@",_::binary>> = str, now) do
     str
-    |> parse_functional_time()
+    |> parse_functional_time(now)
     |> DateTime.to_date()
   end
 
-  def parse_date(str) when is_binary(str) do
+  def parse_date(str, _now) when is_binary(str) do
     case Date.from_iso8601(str) do
       {:ok, date} ->
         date
@@ -482,14 +492,20 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  @spec parse_time(String.t()) :: Time.t() | partial_time()
-  def parse_time(<<"@",_::binary>> = str) do
+  @spec parse_time(String.t(), DateTime.t()) :: Time.t() | partial_time()
+  def parse_time(str) do
+    parse_time(str, DateTime.utc_now())
+  end
+
+  def parse_time(str, now)
+
+  def parse_time(<<"@",_::binary>> = str, now) do
     str
-    |> parse_functional_time()
+    |> parse_functional_time(now)
     |> DateTime.to_time()
   end
 
-  def parse_time(str) when is_binary(str) do
+  def parse_time(str, _now) when is_binary(str) do
     case Time.from_iso8601(str) do
       {:ok, time} ->
         time
@@ -511,14 +527,21 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  @spec parse_naive_datetime(String.t()) :: NaiveDateTime.t() | Date.t()
-  def parse_naive_datetime(<<"@",_::binary>> = str) do
+  @spec parse_naive_datetime(String.t(), DateTime.t()) ::
+    NaiveDateTime.t() | Date.t() | any_partial_naive_datetime()
+  def parse_naive_datetime(str) do
+    parse_naive_datetime(str, DateTime.utc_now())
+  end
+
+  def parse_naive_datetime(str, now)
+
+  def parse_naive_datetime(<<"@",_::binary>> = str, now) do
     str
-    |> parse_functional_time()
+    |> parse_functional_time(now)
     |> DateTime.to_naive()
   end
 
-  def parse_naive_datetime(str) when is_binary(str) do
+  def parse_naive_datetime(str, now) when is_binary(str) do
     case NaiveDateTime.from_iso8601(str) do
       {:ok, naive_datetime} ->
         naive_datetime
@@ -538,7 +561,7 @@ defmodule ArtemisQL.Types do
               [_] ->
                 time = parse_time(str)
 
-                {:partial_naive_datetime, Date.utc_today(), time}
+                {:partial_naive_datetime, DateTime.to_date(now), time}
 
               [] ->
                 parse_date(str)
@@ -549,13 +572,21 @@ defmodule ArtemisQL.Types do
     reraise %ValueTransformError{types: [:naive_datetime | ex.types]}, __STACKTRACE__
   end
 
-  def parse_datetime(<<"@",_::binary>> = str) do
+  @spec parse_datetime(String.t(), DateTime.t()) ::
+    DateTime.t() | Date.t() | any_partial_datetime()
+  def parse_datetime(str) do
+    parse_datetime(str, DateTime.utc_now())
+  end
+
+  def parse_datetime(str, now)
+
+  def parse_datetime(<<"@",_::binary>> = str, now) do
     str
-    |> parse_functional_time()
+    |> parse_functional_time(now)
     |> DateTime.to_date()
   end
 
-  def parse_datetime(str) when is_binary(str) do
+  def parse_datetime(str, now) when is_binary(str) do
     case DateTime.from_iso8601(str) do
       {:ok, datetime, _} ->
         datetime
@@ -580,7 +611,7 @@ defmodule ArtemisQL.Types do
                   [_] ->
                     time = parse_time(str)
 
-                    {:partial_datetime, Date.utc_today(), time}
+                    {:partial_datetime, DateTime.to_date(now), time}
 
                   [] ->
                     parse_date(str)
@@ -595,7 +626,11 @@ defmodule ArtemisQL.Types do
   @doc """
   """
   @spec parse_functional_time(String.t()) :: DateTime.t()
-  def parse_functional_time(<<"@", rest::binary>>) do
+  def parse_functional_time(str) do
+    parse_functional_time(str, DateTime.utc_now())
+  end
+
+  def parse_functional_time(<<"@", rest::binary>>, time_now) do
     duration = %{
       seconds: 0,
       minutes: 0,
@@ -610,7 +645,7 @@ defmodule ArtemisQL.Types do
       rest
       |> String.downcase()
       |> String.split("-")
-      |> do_parse_functional_time({duration, nil})
+      |> do_parse_functional_time({duration, nil}, time_now)
 
     case anchor do
       nil ->
@@ -641,77 +676,107 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  defp do_parse_functional_time([], {_duration, _anchor} = pair) do
+  defp do_parse_functional_time([], {_duration, _anchor} = pair, _now) do
     pair
   end
 
-  defp do_parse_functional_time(["from" | rest], {duration, _anchor}) do
-    do_parse_functional_time(rest, {duration, {:from, nil}})
+  defp do_parse_functional_time(["from" | rest], {duration, _anchor}, now) do
+    do_parse_functional_time(rest, {duration, {:from, nil}}, now)
   end
 
-  defp do_parse_functional_time(["to" | rest], {duration, _anchor}) do
-    do_parse_functional_time(rest, {duration, {:to, nil}})
+  defp do_parse_functional_time(["to" | rest], {duration, _anchor}, now) do
+    do_parse_functional_time(rest, {duration, {:to, nil}}, now)
   end
 
-  defp do_parse_functional_time([word, anchor_name], {duration, anchor}) when word in ["next"] do
+  defp do_parse_functional_time(["till" | rest], {duration, _anchor}, now) do
+    do_parse_functional_time(rest, {duration, {:to, nil}}, now)
+  end
+
+  defp do_parse_functional_time(["ago"], {duration, _anchor}, now) do
+    do_parse_functional_time([], {duration, {:to, now}}, now)
+  end
+
+  defp do_parse_functional_time(["later"], {duration, _anchor}, now) do
+    do_parse_functional_time([], {duration, {:from, now}}, now)
+  end
+
+  defp do_parse_functional_time([word, anchor_name], {duration, anchor}, now) when word in ["next"] do
     point =
       case anchor_name do
+        "second" ->
+          Timex.shift(now, seconds: 1)
+
+        "minute" ->
+          Timex.shift(now, minutes: 1)
+
+        "hour" ->
+          Timex.shift(now, hours: 1)
+
         "day" ->
-          Timex.shift(DateTime.utc_now(), days: 1)
+          Timex.shift(now, days: 1)
 
         "week" ->
-          Timex.shift(DateTime.utc_now(), days: 7)
+          Timex.shift(now, days: 7)
 
         "month" ->
-          Timex.shift(DateTime.utc_now(), months: 1)
+          Timex.shift(now, months: 1)
 
         "year" ->
-          Timex.shift(DateTime.utc_now(), years: 1)
+          Timex.shift(now, years: 1)
       end
 
     {duration, replace_anchor(anchor, point)}
   end
 
-  defp do_parse_functional_time([word, anchor_name], {duration, anchor}) when word in ["last", "prev", "previous"] do
+  defp do_parse_functional_time([word, anchor_name], {duration, anchor}, now) when word in ["last", "prev", "previous"] do
     point =
       case anchor_name do
+        "second" ->
+          Timex.shift(now, seconds: -1)
+
+        "minute" ->
+          Timex.shift(now, minutes: -1)
+
+        "hour" ->
+          Timex.shift(now, hours: -1)
+
         "day" ->
-          Timex.shift(DateTime.utc_now(), days: -1)
+          Timex.shift(now, days: -1)
 
         "week" ->
-          Timex.shift(DateTime.utc_now(), days: -7)
+          Timex.shift(now, days: -7)
 
         "month" ->
-          Timex.shift(DateTime.utc_now(), months: -1)
+          Timex.shift(now, months: -1)
 
         "year" ->
-          Timex.shift(DateTime.utc_now(), years: -1)
+          Timex.shift(now, years: -1)
       end
 
     {duration, replace_anchor(anchor, point)}
   end
 
-  defp do_parse_functional_time([anchor_name], {duration, anchor}) do
+  defp do_parse_functional_time([anchor_name], {duration, anchor}, now) do
     point =
       case anchor_name do
         "today" ->
-          Timex.beginning_of_day(DateTime.utc_now())
+          Timex.beginning_of_day(now)
 
-        "now" ->
-          DateTime.utc_now()
+        name when name in ["now"] ->
+          now
 
         "yesterday" ->
-          Timex.shift(DateTime.utc_now(), days: -1)
+          Timex.shift(now, days: -1)
 
         "tomorrow" ->
-          Timex.shift(DateTime.utc_now(), days: 1)
+          Timex.shift(now, days: 1)
       end
 
     {duration, replace_anchor(anchor, point)}
   end
 
-  defp do_parse_functional_time(["and" | rest], acc) do
-    do_parse_functional_time(rest, acc)
+  defp do_parse_functional_time(["and" | rest], acc, now) do
+    do_parse_functional_time(rest, acc, now)
   end
 
   rows = [
@@ -725,14 +790,14 @@ defmodule ArtemisQL.Types do
   ]
 
   for {singular, unit} <- rows do
-    defp do_parse_functional_time([amount, unquote(to_string(unit)) | rest], {duration, anchor}) do
+    defp do_parse_functional_time([amount, unquote(to_string(unit)) | rest], {duration, anchor}, now) do
       duration = %{duration | unquote(unit) => duration.unquote(unit) + String.to_integer(amount, 10)}
-      do_parse_functional_time(rest, {duration, anchor})
+      do_parse_functional_time(rest, {duration, anchor}, now)
     end
 
-    defp do_parse_functional_time([amount, unquote(to_string(singular)) | rest], {duration, anchor}) do
+    defp do_parse_functional_time([amount, unquote(to_string(singular)) | rest], {duration, anchor}, now) do
       duration = %{duration | unquote(unit) => duration.unquote(unit) + String.to_integer(amount, 10)}
-      do_parse_functional_time(rest, {duration, anchor})
+      do_parse_functional_time(rest, {duration, anchor}, now)
     end
   end
 

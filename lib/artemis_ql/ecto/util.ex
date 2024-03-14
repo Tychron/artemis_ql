@@ -4,6 +4,7 @@ defmodule ArtemisQL.Ecto.Util do
   @sql_wildcard "%"
   @sql_any_char "_"
 
+  @spec escape_string_for_like(String.t()) :: String.t()
   def escape_string_for_like(str) when is_binary(str) do
     str
     |> String.replace("\\", "\\\\")
@@ -11,6 +12,7 @@ defmodule ArtemisQL.Ecto.Util do
     |> String.replace("_", "\\_")
   end
 
+  @spec partial_to_like_pattern([ArtemisQL.Tokens.token()]) :: String.t()
   def partial_to_like_pattern(items) when is_list(items) do
     value =
       Enum.map(items, fn

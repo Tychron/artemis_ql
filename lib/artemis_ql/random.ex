@@ -1,6 +1,7 @@
 defmodule ArtemisQL.Random do
   import ArtemisQL.Tokens
 
+  @spec random_boolean :: boolean()
   def random_boolean do
     :rand.uniform(2) == 1
   end

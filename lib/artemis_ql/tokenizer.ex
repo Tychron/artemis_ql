@@ -2,117 +2,13 @@ defmodule ArtemisQL.Tokenizer do
   import ArtemisQL.Tokens
   import ArtemisQL.Utils
 
-  @type token_meta :: %{
-    line_no: integer(),
-    col_no: integer(),
-  }
+  @type token_meta :: ArtemisQL.Tokens.token_meta()
 
-  @typedoc """
-  All comparison operators recognized by the tokenizer
+  @type token :: ArtemisQL.Tokens.token()
 
-  Operators:
-  * `gte` - `>=`, greater than or equal to
-  * `lte` - `<=`, less than or equal to
-  * `gt` - `>`, greater than
-  * `lt` - `<`, less than
-  * `neq` - `!`, not equal to
-  * `eq` - `=`, equal to
-  * `nfuzz` - `!~`, not fuzzy equal
-  * `fuzz` - `~`, fuzzy equal
-  """
-  @type comparison_operator :: :gte
-                             | :lte
-                             | :gt
-                             | :lt
-                             | :neq
-                             | :eq
-                             | :fuzz
-                             | :nfuzz
+  @type tokens :: ArtemisQL.Tokens.tokens()
 
-  @typedoc """
-  End-of-Stream token, used to mark the end of a search string
-  """
-  @type eos_token :: {:eos, nil, token_meta()}
-
-  @typedoc """
-  Used to represent 1 or more spaces, this includes normal whitespace, tabs, newlines and
-  carriage returns.
-  """
-  @type space_token :: {:space, spaces::String.t(), token_meta()}
-
-  @typedoc """
-  A quoted string is any number of characters originally enclosed in double-quotes ('"')
-  """
-  @type quoted_string_token :: {:quote, String.t(), token_meta()}
-
-  @typedoc """
-  A comparison operator, normally used to add some additional conditional to the value.
-  """
-  @type comparison_operator_token :: {:cmp_op, comparison_operator(), token_meta()}
-
-  @typedoc """
-  The wildcard token is denoted by `*` and generally means match anything, if its used
-  within a set of words or quotes then it acts as a positional matcher.
-  """
-  @type wildcard_token :: {:wildcard, nil, token_meta()}
-
-  @typedoc """
-  The any_char token is denoted by `?`, it will match any one character in a string.
-  """
-  @type any_char_token :: {:any_char, nil, token_meta()}
-
-  @typedoc """
-  The pair operator token is used to denote key:value pairs
-  """
-  @type pair_op_token :: {:pair_op, nil, token_meta()}
-
-  @typedoc """
-  The range operator token is used to denote range pairs (e.g. `1..2`, `1..`, `..2`)
-  """
-  @type range_op_token :: {:range_op, nil, token_meta()}
-
-  @typedoc """
-  The continuation operator is used to denote lists (e.g. `1,2,3,4`)
-  """
-  @type continuation_op_token :: {:continuation_op, nil, token_meta()}
-
-  @typedoc """
-  Pins are used to reference other fields in pair matching, this allows you to compare one field
-  with the other.
-
-  Usage:
-
-    updated_at:>=^expires_at
-  """
-  @type pin_token :: {:pin, nil, token_meta()}
-
-  @typedoc """
-  A word is any unbroken text excluding some special characters (only `_` and `-` are allowed)
-  """
-  @type word_token :: {:word, String.t(), token_meta()}
-
-  @typedoc """
-  Exported tokens are those that will be returned from tokenize_all, this includes all tokens,
-  except :eos, which is used to tell tokenize_all/2 that there are no more tokens to parse.
-  """
-  @type token :: space_token()
-                        | quoted_string_token()
-                        | comparison_operator_token()
-                        | wildcard_token()
-                        | any_char_token()
-                        | pair_op_token()
-                        | range_op_token()
-                        | continuation_op_token()
-                        | pin_token()
-                        | word_token()
-
-  @type tokens :: [token()]
-
-  @typedoc """
-  The 'internal' token is all tokens plus the eos token, it is strictly used for
-  bare bones tokenize
-  """
-  @type internal_token :: eos_token() | token()
+  @type internal_token :: ArtemisQL.Tokens.internal_token()
 
   defmacrop next_col(meta, amount) do
     quote do
@@ -186,7 +82,9 @@ defmodule ArtemisQL.Tokenizer do
     end
   end
 
-  @spec tokenize(String.t(), state::any()) :: {:ok, internal_token(), token_meta(), rest::String.t()}
+  @spec tokenize(String.t(), state::any()) ::
+    {:ok, internal_token(), token_meta(), rest::String.t()}
+    | {:error, term()}
   def tokenize(rest, state \\ nil, meta \\ %{line_no: 1, col_no: 1})
 
   #
@@ -206,7 +104,7 @@ defmodule ArtemisQL.Tokenizer do
     nil,
     meta
   ) when is_utf8_newline_like_char(c) or is_utf8_space_like_char(c) do
-    {spaces, rest_meta, rest} = trim_spaces(rest, meta)
+    {spaces, rest_meta, rest} = trim_leading_spaces_and_newlines(rest, meta)
     {:ok, r_space_token(value: spaces, meta: meta), rest_meta, rest}
   end
 
@@ -284,7 +182,7 @@ defmodule ArtemisQL.Tokenizer do
     {:quote, acc, qmeta},
     meta
   ) when is_utf8_newline_like_char(c) do
-    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_line(meta, utf8_char_byte_size(c)))
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_line(meta, 1))
   end
 
   def tokenize(
@@ -432,29 +330,45 @@ defmodule ArtemisQL.Tokenizer do
     end
   end
 
-  defp trim_spaces(rest, meta, acc \\ [])
+  defp trim_leading_spaces_and_newlines(rest, meta, acc \\ [])
 
-  defp trim_spaces(<<c::utf8, rest::binary>>, meta, acc) when is_utf8_space_like_char(c) do
-    trim_spaces(rest, next_col(meta, utf8_char_byte_size(c)), [<<c::utf8>> | acc])
+  defp trim_leading_spaces_and_newlines(
+    <<c::utf8, rest::binary>>,
+    meta,
+    acc
+  ) when is_utf8_space_like_char(c) do
+    trim_leading_spaces_and_newlines(
+      rest,
+      next_col(meta, utf8_char_byte_size(c)),
+      [<<c::utf8>> | acc]
+    )
   end
 
-  defp trim_spaces(
+  defp trim_leading_spaces_and_newlines(
     <<c1::utf8, c2::utf8, rest::binary>>,
     meta,
     acc
   ) when is_utf8_twochar_newline(c1, c2) do
-    trim_spaces(
+    trim_leading_spaces_and_newlines(
       rest,
       next_line(meta),
       [<<c1::utf8, c2::utf8>> | acc]
     )
   end
 
-  defp trim_spaces(<<c::utf8, rest::binary>>, meta, acc) when is_utf8_newline_like_char(c) do
-    trim_spaces(rest, next_line(meta), [<<c::utf8>> | acc])
+  defp trim_leading_spaces_and_newlines(
+    <<c::utf8, rest::binary>>,
+    meta,
+    acc
+  ) when is_utf8_newline_like_char(c) do
+    trim_leading_spaces_and_newlines(
+      rest,
+      next_line(meta),
+      [<<c::utf8>> | acc]
+    )
   end
 
-  defp trim_spaces(rest, meta, acc) do
+  defp trim_leading_spaces_and_newlines(rest, meta, acc) do
     {IO.iodata_to_binary(Enum.reverse(acc)), meta, rest}
   end
 end

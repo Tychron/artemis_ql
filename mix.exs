@@ -33,6 +33,7 @@ defmodule ArtemisQL.MixProject do
 
   defp deps do
     [
+      {:ecto_ulid, "~> 0.3"},
       {:ecto, "~> 3.1"},
       {:timex, "~> 3.6"},
       {:decimal, "~> 2.0"},

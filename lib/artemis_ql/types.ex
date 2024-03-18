@@ -1,43 +1,11 @@
 defmodule ArtemisQL.Types do
-  defmodule ValueTransformError do
-    defexception [message: nil, types: [], caused_by: nil]
-
-    @impl true
-    def message(%{caused_by: nil} = exception) do
-      types = Enum.join(exception.types, ", ")
-      "a error occured while transforming the value (tried types: #{types})"
-    end
-
-    @impl true
-    def message(%{caused_by: caused_by} = exception) do
-      IO.iodata_to_binary [message(%{exception | caused_by: nil}), "\n", Exception.format(:error, caused_by)]
-    end
-  end
-
+  alias ArtemisQL.Types.ValueTransformError
   alias ArtemisQL.SearchMap
   alias ArtemisQL.Errors.KeyNotFound
   alias ArtemisQL.Errors.InvalidEnumValue
   alias ArtemisQL.Errors.UnsupportedSearchTermForField
 
   import ArtemisQL.Tokens
-
-  @type partial_date ::
-    {:partial_date, {year::integer(), month::integer()}}
-    | {:partial_date, {year::integer()}}
-
-  @type partial_time ::
-    {:partial_time, {hour::integer, minute::integer}}
-    | {:partial_time, {hour::integer}}
-
-  @type partial_datetime ::
-    {:partial_datetime, Date.t(), partial_time()}
-
-  @type partial_naive_datetime ::
-    {:partial_naive_datetime, Date.t(), partial_time()}
-
-  @type any_partial_datetime :: partial_datetime() | partial_date() | partial_time()
-
-  @type any_partial_naive_datetime :: partial_naive_datetime() | partial_date() | partial_time()
 
   @doc """
   Attempts to filter the given key against the search_map, if the key is not in the map
@@ -172,7 +140,27 @@ defmodule ArtemisQL.Types do
   ) :: {:ok, key::atom(), token::any()}
      | {:error, term()}
   def handle_type_module_transform(:binary_id, _params, key, value, search_map) do
-    case apply_to_value(value, &to_string/1, search_map) do
+    case recast_token(value, &Ecto.Type.cast(:binary_id, &1), search_map) do
+      {:ok, token} ->
+        {:ok, key, token}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  def handle_type_module_transform(:uuid, _params, key, value, search_map) do
+    case recast_token(value, &cast_uuid/1, search_map) do
+      {:ok, token} ->
+        {:ok, key, token}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  def handle_type_module_transform(:ulid, _params, key, value, search_map) do
+    case recast_token(value, &cast_ulid/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -182,7 +170,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:boolean, _params, key, value, search_map) do
-    case apply_to_value(value, &to_boolean/1, search_map) do
+    case recast_token(value, &cast_boolean/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -192,7 +180,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:integer, _params, key, value, search_map) do
-    case apply_to_value(value, &String.to_integer/1, search_map) do
+    case recast_token(value, &Ecto.Type.cast(:integer, &1), search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -202,7 +190,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:float, _params, key, value, search_map) do
-    case apply_to_value(value, &String.to_float/1, search_map) do
+    case recast_token(value, &Ecto.Type.cast(:float, &1), search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -212,7 +200,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:decimal, _params, key, value, search_map) do
-    case apply_to_value(value, &Decimal.new/1, search_map) do
+    case recast_token(value, &Ecto.Type.cast(:decimal, &1), search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -222,7 +210,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:atom, _params, key, value, search_map) do
-    case apply_to_value(value, &String.to_existing_atom/1, search_map) do
+    case recast_token(value, &cast_atom/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -232,7 +220,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:string, _params, key, value, search_map) do
-    case apply_to_value(value, &normalize_value/1, search_map) do
+    case recast_token(value, &normalize_value/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -242,7 +230,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:date, _params, key, value, search_map) do
-    case apply_to_value(value, &parse_date/1, search_map) do
+    case recast_token(value, &cast_date/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -252,7 +240,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:time, _params, key, value, search_map) do
-    case apply_to_value(value, &parse_time/1, search_map) do
+    case recast_token(value, &cast_time/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -262,7 +250,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:naive_datetime, _params, key, value, search_map) do
-    case apply_to_value(value, &parse_naive_datetime/1, search_map) do
+    case recast_token(value, &cast_naive_datetime/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -272,7 +260,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:utc_datetime, _params, key, value, search_map) do
-    case apply_to_value(value, &parse_datetime/1, search_map) do
+    case recast_token(value, &cast_datetime/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -368,10 +356,10 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  @spec apply_to_value(token::any(), callback::any(), search_map::any()) ::
+  @spec recast_token(token::any(), callback::any(), search_map::any()) ::
     {:ok, token::any()}
     | {:error, term()}
-  def apply_to_value(
+  def recast_token(
     r_pin_token(value: {kind, value, _}, meta: meta) = token,
     _callback,
     search_map
@@ -395,20 +383,20 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def apply_to_value(r_infinity_token() = token, _callback, _search_map) do
+  def recast_token(r_infinity_token() = token, _callback, _search_map) do
     {:ok, token}
   end
 
-  def apply_to_value(r_wildcard_token() = token, _callback, _search_map) do
+  def recast_token(r_wildcard_token() = token, _callback, _search_map) do
     {:ok, token}
   end
 
-  def apply_to_value(r_null_token() = token, _callback, _search_map) do
+  def recast_token(r_null_token() = token, _callback, _search_map) do
     {:ok, token}
   end
 
-  def apply_to_value(r_cmp_token(pair: {operator, value}, meta: meta), callback, search_map) do
-    case apply_to_value(value, callback, search_map) do
+  def recast_token(r_cmp_token(pair: {operator, value}, meta: meta), callback, search_map) do
+    case recast_token(value, callback, search_map) do
       {:ok, value} ->
         {:ok, r_cmp_token(pair: {operator, value}, meta: meta)}
 
@@ -417,12 +405,17 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def apply_to_value({kind, value, meta}, callback, _search_map) when kind in [:word, :quote] do
-    value = callback.(value)
-    {:ok, r_value_token(value: value, meta: meta)}
+  def recast_token({kind, value, meta}, callback, _search_map) when kind in [:word, :quote] do
+    case callback.(value) do
+      {:ok, value} ->
+        {:ok, r_value_token(value: value, meta: meta)}
+
+      :error ->
+        {:error, :cast_error}
+    end
   end
 
-  def apply_to_value(r_partial_token(items: elements, meta: meta), callback, search_map) do
+  def recast_token(r_partial_token(items: elements, meta: meta), callback, search_map) do
     {:ok, r_partial_token(items: Enum.map(elements, fn
       r_wildcard_token() = token ->
         token
@@ -431,7 +424,7 @@ defmodule ArtemisQL.Types do
         token
 
       {_kind, _value, _meta} = element ->
-        case apply_to_value(element, callback, search_map) do
+        case recast_token(element, callback, search_map) do
           {:ok, token} ->
             token
 
@@ -443,10 +436,10 @@ defmodule ArtemisQL.Types do
     err
   end
 
-  def apply_to_value(r_range_token(pair: {a, b}, meta: meta), callback, search_map) do
+  def recast_token(r_range_token(pair: {a, b}, meta: meta), callback, search_map) do
     with \
-      {:ok, a_token} <- apply_to_value(a, callback, search_map),
-      {:ok, b_token} <- apply_to_value(b, callback, search_map)
+      {:ok, a_token} <- recast_token(a, callback, search_map),
+      {:ok, b_token} <- recast_token(b, callback, search_map)
     do
       {:ok, r_range_token(
         pair: {a_token, b_token},
@@ -458,369 +451,65 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def parse_date(str) do
-    parse_date(str, DateTime.utc_now())
-  end
-
-  def parse_date(str, now)
-
-  def parse_date(<<"@",_::binary>> = str, now) do
-    str
-    |> parse_functional_time(now)
-    |> DateTime.to_date()
-  end
-
-  def parse_date(str, _now) when is_binary(str) do
-    case Date.from_iso8601(str) do
-      {:ok, date} ->
-        date
-
-      {:error, _} ->
-        case Regex.scan(~r/\A(\d+)-(\d+)\z/, str) do
-          [[_, year, month]] ->
-            {:partial_date, {String.to_integer(year), String.to_integer(month)}}
-
-          [] ->
-            case Regex.scan(~r/\A(\d+)\z/, str) do
-              [[_, year]] ->
-                {:partial_date, {String.to_integer(year)}}
-
-              [] ->
-                raise %ValueTransformError{types: [:date]}
-            end
-        end
-    end
-  end
-
-  @spec parse_time(String.t(), DateTime.t()) :: Time.t() | partial_time()
-  def parse_time(str) do
-    parse_time(str, DateTime.utc_now())
-  end
-
-  def parse_time(str, now)
-
-  def parse_time(<<"@",_::binary>> = str, now) do
-    str
-    |> parse_functional_time(now)
-    |> DateTime.to_time()
-  end
-
-  def parse_time(str, _now) when is_binary(str) do
-    case Time.from_iso8601(str) do
-      {:ok, time} ->
-        time
-
-      {:error, _} ->
-        case Regex.scan(~r/\A(\d+):(\d+)\z/, str) do
-          [[_, hour, month]] ->
-            {:partial_time, {String.to_integer(hour), String.to_integer(month)}}
-
-          [] ->
-            case Regex.scan(~r/\A(\d+)\z/, str) do
-              [[_, hour]] ->
-                {:partial_time, {String.to_integer(hour)}}
-
-              [] ->
-                raise %ValueTransformError{types: [:time]}
-            end
-        end
-    end
-  end
-
-  @spec parse_naive_datetime(String.t(), DateTime.t()) ::
-    NaiveDateTime.t() | Date.t() | any_partial_naive_datetime()
-  def parse_naive_datetime(str) do
-    parse_naive_datetime(str, DateTime.utc_now())
-  end
-
-  def parse_naive_datetime(str, now)
-
-  def parse_naive_datetime(<<"@",_::binary>> = str, now) do
-    str
-    |> parse_functional_time(now)
-    |> DateTime.to_naive()
-  end
-
-  def parse_naive_datetime(str, now) when is_binary(str) do
-    case NaiveDateTime.from_iso8601(str) do
-      {:ok, naive_datetime} ->
-        naive_datetime
-
-      {:error, _} ->
-        case str do
-          <<
-            year::binary-size(4), "-",
-            month::binary-size(2), "-",
-            day::binary-size(2), "T",
-            rest::binary
-          >> ->
-            {:partial_naive_datetime, parse_date("#{year}-#{month}-#{day}"), parse_time(rest)}
-
-          _ ->
-            case Regex.scan(~r/\A(\d+)(:\d+){1,2}/, str) do
-              [_] ->
-                time = parse_time(str)
-
-                {:partial_naive_datetime, DateTime.to_date(now), time}
-
-              [] ->
-                parse_date(str)
-            end
-        end
-    end
-  rescue ex in ValueTransformError ->
-    reraise %ValueTransformError{types: [:naive_datetime | ex.types]}, __STACKTRACE__
-  end
-
-  @spec parse_datetime(String.t(), DateTime.t()) ::
-    DateTime.t() | Date.t() | any_partial_datetime()
-  def parse_datetime(str) do
-    parse_datetime(str, DateTime.utc_now())
-  end
-
-  def parse_datetime(str, now)
-
-  def parse_datetime(<<"@",_::binary>> = str, now) do
-    str
-    |> parse_functional_time(now)
-    |> DateTime.to_date()
-  end
-
-  def parse_datetime(str, now) when is_binary(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, datetime, _} ->
-        datetime
-
-      {:error, _} ->
-        case NaiveDateTime.from_iso8601(str) do
-          {:ok, datetime} ->
-            datetime
-
-          {:error, _} ->
-            case str do
-              <<
-                year::binary-size(4), "-",
-                month::binary-size(2), "-",
-                day::binary-size(2), "T",
-                rest::binary
-              >> ->
-                {:partial_datetime, parse_date("#{year}-#{month}-#{day}"), parse_time(rest)}
-
-              _ ->
-                case Regex.scan(~r/\A(\d+)(:\d+){1,2}/, str) do
-                  [_] ->
-                    time = parse_time(str)
-
-                    {:partial_datetime, DateTime.to_date(now), time}
-
-                  [] ->
-                    parse_date(str)
-                end
-            end
-        end
-    end
-  rescue ex in ValueTransformError ->
-    reraise %ValueTransformError{types: [:datetime | ex.types]}, __STACKTRACE__
-  end
-
-  @doc """
-  """
-  @spec parse_functional_time(String.t()) :: DateTime.t()
-  def parse_functional_time(str) do
-    parse_functional_time(str, DateTime.utc_now())
-  end
-
-  def parse_functional_time(<<"@", rest::binary>>, time_now) do
-    duration = %{
-      seconds: 0,
-      minutes: 0,
-      hours: 0,
-      days: 0,
-      weeks: 0,
-      months: 0,
-      years: 0
-    }
-
-    {duration, anchor} =
-      rest
-      |> String.downcase()
-      |> String.split("-")
-      |> do_parse_functional_time({duration, nil}, time_now)
-
-    case anchor do
-      nil ->
-        raise %ValueTransformError{types: [:functional_time]}
-
-      {:from, %DateTime{} = datetime} ->
-        Timex.shift(datetime, [
-          seconds: duration[:seconds],
-          minutes: duration[:minutes],
-          hours: duration[:hours],
-          days: duration[:days] + duration[:weeks] * 7,
-          months: duration[:months],
-          years: duration[:years],
-        ])
-
-      {:to, %DateTime{} = datetime} ->
-        Timex.shift(datetime, [
-          seconds: -duration[:seconds],
-          minutes: -duration[:minutes],
-          hours: -duration[:hours],
-          days: -(duration[:days] + duration[:weeks] * 7),
-          months: -duration[:months],
-          years: -duration[:years],
-        ])
-
-      %DateTime{} = datetime ->
-        datetime
-    end
-  end
-
-  defp do_parse_functional_time([], {_duration, _anchor} = pair, _now) do
-    pair
-  end
-
-  defp do_parse_functional_time(["from" | rest], {duration, _anchor}, now) do
-    do_parse_functional_time(rest, {duration, {:from, nil}}, now)
-  end
-
-  defp do_parse_functional_time(["to" | rest], {duration, _anchor}, now) do
-    do_parse_functional_time(rest, {duration, {:to, nil}}, now)
-  end
-
-  defp do_parse_functional_time(["till" | rest], {duration, _anchor}, now) do
-    do_parse_functional_time(rest, {duration, {:to, nil}}, now)
-  end
-
-  defp do_parse_functional_time(["ago"], {duration, _anchor}, now) do
-    do_parse_functional_time([], {duration, {:to, now}}, now)
-  end
-
-  defp do_parse_functional_time(["later"], {duration, _anchor}, now) do
-    do_parse_functional_time([], {duration, {:from, now}}, now)
-  end
-
-  defp do_parse_functional_time([word, anchor_name], {duration, anchor}, now) when word in ["next"] do
-    point =
-      case anchor_name do
-        "second" ->
-          Timex.shift(now, seconds: 1)
-
-        "minute" ->
-          Timex.shift(now, minutes: 1)
-
-        "hour" ->
-          Timex.shift(now, hours: 1)
-
-        "day" ->
-          Timex.shift(now, days: 1)
-
-        "week" ->
-          Timex.shift(now, days: 7)
-
-        "month" ->
-          Timex.shift(now, months: 1)
-
-        "year" ->
-          Timex.shift(now, years: 1)
-      end
-
-    {duration, replace_anchor(anchor, point)}
-  end
-
-  defp do_parse_functional_time([word, anchor_name], {duration, anchor}, now) when word in ["last", "prev", "previous"] do
-    point =
-      case anchor_name do
-        "second" ->
-          Timex.shift(now, seconds: -1)
-
-        "minute" ->
-          Timex.shift(now, minutes: -1)
-
-        "hour" ->
-          Timex.shift(now, hours: -1)
-
-        "day" ->
-          Timex.shift(now, days: -1)
-
-        "week" ->
-          Timex.shift(now, days: -7)
-
-        "month" ->
-          Timex.shift(now, months: -1)
-
-        "year" ->
-          Timex.shift(now, years: -1)
-      end
-
-    {duration, replace_anchor(anchor, point)}
-  end
-
-  defp do_parse_functional_time([anchor_name], {duration, anchor}, now) do
-    point =
-      case anchor_name do
-        "today" ->
-          Timex.beginning_of_day(now)
-
-        name when name in ["now"] ->
-          now
-
-        "yesterday" ->
-          Timex.shift(now, days: -1)
-
-        "tomorrow" ->
-          Timex.shift(now, days: 1)
-      end
-
-    {duration, replace_anchor(anchor, point)}
-  end
-
-  defp do_parse_functional_time(["and" | rest], acc, now) do
-    do_parse_functional_time(rest, acc, now)
-  end
-
-  rows = [
-    {:second, :seconds},
-    {:minute, :minutes},
-    {:hour, :hours},
-    {:day, :days},
-    {:week, :weeks},
-    {:month, :months},
-    {:year, :years}
-  ]
-
-  for {singular, unit} <- rows do
-    defp do_parse_functional_time([amount, unquote(to_string(unit)) | rest], {duration, anchor}, now) do
-      duration = %{duration | unquote(unit) => duration.unquote(unit) + String.to_integer(amount, 10)}
-      do_parse_functional_time(rest, {duration, anchor}, now)
-    end
-
-    defp do_parse_functional_time([amount, unquote(to_string(singular)) | rest], {duration, anchor}, now) do
-      duration = %{duration | unquote(unit) => duration.unquote(unit) + String.to_integer(amount, 10)}
-      do_parse_functional_time(rest, {duration, anchor}, now)
-    end
-  end
-
-  defp replace_anchor({direction, _}, value) do
-    {direction, value}
-  end
-
-  defp replace_anchor(nil, value) do
-    value
-  end
-
   def normalize_value(value) do
-    value
+    {:ok, value}
   end
 
-  def to_boolean(value) do
+  @spec cast_uuid(binary()) :: {:ok, String.t()} | :error
+  def cast_uuid(str) do
+    Ecto.UUID.cast(str)
+  end
+
+  @spec cast_ulid(binary()) :: {:ok, String.t()} | :error
+  def cast_ulid(str) do
+    Ecto.ULID.cast(str)
+  end
+
+  @spec cast_boolean(String.t()) :: {:ok, boolean()}
+  def cast_boolean(value) when is_binary(value) do
     case String.downcase(value) do
       v when v in ~w[yes y 1 true t on] ->
-        true
+        {:ok, true}
 
       v when v in ~w[no n 0 false f off] ->
-        false
+        {:ok, false}
+
+      _ ->
+        :error
     end
+  end
+
+  @spec cast_atom(String.t()) :: {:ok, atom()}
+  def cast_atom(str) do
+    {:ok, String.to_existing_atom(str)}
+  end
+
+  @spec cast_date(String.t()) :: {:ok, Date.t()}
+  def cast_date(value) do
+    {:ok, ArtemisQL.Types.DateAndTime.parse_date(value)}
+  rescue _ex in ValueTransformError ->
+    :error
+  end
+
+  @spec cast_time(String.t()) :: {:ok, Time.t()}
+  def cast_time(value) do
+    {:ok, ArtemisQL.Types.DateAndTime.parse_time(value)}
+  rescue _ex in ValueTransformError ->
+    :error
+  end
+
+  @spec cast_datetime(String.t()) :: {:ok, Time.t()}
+  def cast_datetime(value) do
+    {:ok, ArtemisQL.Types.DateAndTime.parse_datetime(value)}
+  rescue _ex in ValueTransformError ->
+    :error
+  end
+
+  @spec cast_naive_datetime(String.t()) :: {:ok, Time.t()}
+  def cast_naive_datetime(value) do
+    {:ok, ArtemisQL.Types.DateAndTime.parse_naive_datetime(value)}
+  rescue _ex in ValueTransformError ->
+    :error
   end
 
   #

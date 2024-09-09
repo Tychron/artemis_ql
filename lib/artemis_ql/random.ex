@@ -23,7 +23,7 @@ defmodule ArtemisQL.Random do
   end
 
   @spec maybe_random_integer(any()) :: integer()
-  def maybe_random_integer(mn..mx) do
+  def maybe_random_integer(mn..mx//1) do
     random_integer_between(mn, mx)
   end
 

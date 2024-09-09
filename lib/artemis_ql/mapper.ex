@@ -4,7 +4,7 @@ defmodule ArtemisQL.Mapper do
   """
   import ArtemisQL.Tokens
 
-  @type query_op :: :gt | :gte | :lt | :lte | :eq | :neq | :in
+  @type query_op :: :gt | :gte | :lt | :lte | :eq | :neq | :in | :fuzz | :nfuzz
 
   @typedoc """
   Represents a partial (i.e. string that contains wildcards) value.

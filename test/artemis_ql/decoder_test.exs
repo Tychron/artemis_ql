@@ -166,6 +166,18 @@ defmodule ArtemisQL.DecoderTest do
       ], ""} = ArtemisQL.decode("(Value Other) (Second Group)")
     end
 
+    test "can parse an implicit nil pair terminated by end of sequence" do
+      assert {:ok, [
+        {:pair, {{:word, "inserted_at", _}, nil}, _}
+      ], ""} = ArtemisQL.decode("inserted_at:")
+    end
+
+    test "can parse an implicit nil pair terminated by space" do
+      assert {:ok, [
+        {:pair, {{:word, "inserted_at", _}, nil}, _}
+      ], ""} = ArtemisQL.decode("inserted_at: ")
+    end
+
     test "can parse a pair with a comparator value and partial date" do
       assert {:ok, [
         {:pair, {

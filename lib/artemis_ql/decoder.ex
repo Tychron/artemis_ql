@@ -110,23 +110,28 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_token([r_quote_token(meta: meta) = key_token, {:pair_op, _, _} | tokens]) do
-    case decode_token(tokens) do
-      {:ok, r_token() = value_token, tokens} ->
-        {:ok, {:pair, {key_token, value_token}, meta}, tokens}
+  defp decode_token(
+    [
+      r_token(kind: kind, meta: meta) = key_token,
+      r_pair_op_token()
+      | tokens
+    ]
+  ) when kind in [:quote, :word] do
+    case tokens do
+      [] ->
+        {:ok, {:pair, {key_token, nil}, meta}, tokens}
 
-      {:error, _reason, _tokens} = err ->
-        err
-    end
-  end
+      [r_space_token() | tokens] ->
+        {:ok, {:pair, {key_token, nil}, meta}, tokens}
 
-  defp decode_token([r_word_token(meta: meta) = key_token, {:pair_op, _, _} | tokens]) do
-    case decode_token(tokens) do
-      {:ok, r_token() = value, tokens} ->
-        {:ok, {:pair, {key_token, value}, meta}, tokens}
+      tokens when is_list(tokens) ->
+        case decode_token(tokens) do
+          {:ok, r_token() = value_token, tokens} ->
+            {:ok, {:pair, {key_token, value_token}, meta}, tokens}
 
-      {:error, _reason, _tokens} = err ->
-        err
+          {:error, _reason, _tokens} = err ->
+            err
+        end
     end
   end
 
@@ -158,7 +163,7 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_token(tokens) do
+  defp decode_token(tokens) when is_list(tokens) do
     case decode_value(tokens) do
       {:error, _reason, _tokens} = err ->
         err
@@ -192,7 +197,7 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_list(tokens, acc \\ []) do
+  defp decode_list(tokens, acc \\ []) when is_list(tokens) do
     case decode_value(tokens) do
       {:error, _reason, _tokens} = err ->
         # return the error as is

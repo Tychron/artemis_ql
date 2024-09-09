@@ -136,6 +136,8 @@ defmodule ArtemisQL.Tokens do
 
   defrecord :r_pair_token, :pair, [:pair, :meta]
 
+  defrecord :r_pair_op_token, :pair_op, [:unused, :meta]
+
   defrecord :r_partial_token, :partial, [:items, :meta]
 
   defrecord :r_and_token, :and, [:pair, :meta]

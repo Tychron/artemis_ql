@@ -14,6 +14,8 @@
 * [`naive_datetime`](#naive_datetime)
 * [`utc_datetime`](#utc_datetime)
 
+__Scalars__ `binary_id`, `integer`, `float`, `atom`, `string`, `decimal`, `boolean`
+
 ## `binary_id`
 
 For any general `binary_id` types, this works for UUID and ULID, however they will not be validated.

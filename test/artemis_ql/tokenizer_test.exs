@@ -19,6 +19,19 @@ defmodule ArtemisQL.TokenizerTest do
       assert {:ok, {:word, "@Word", %{line_no: 1, col_no: 1}}, %{line_no: 1, col_no: 6}, ""} == Tokenizer.tokenize("@Word")
     end
 
+    test "can correctly tokenize a range operator (not as a word)" do
+      assert {:ok, {:range_op, nil, %{line_no: 1, col_no: 1}}, %{line_no: 1, col_no: 3}, ""} == Tokenizer.tokenize("..")
+    end
+
+    test "can correctly tokenize a word with a range_op after" do
+      assert {:ok, {:word, "A", %{line_no: 1, col_no: 1}}, %{line_no: 1, col_no: 2}, "..B"} == Tokenizer.tokenize("A..B")
+    end
+
+    test "can tokenize a word containing periods" do
+      assert {:ok, {:word, ".", %{line_no: 1, col_no: 1}}, %{line_no: 1, col_no: 2}, ""} == Tokenizer.tokenize(".")
+      assert {:ok, {:word, "192.168.0.1", %{line_no: 1, col_no: 1}}, %{line_no: 1, col_no: 12}, ""} == Tokenizer.tokenize("192.168.0.1")
+    end
+
     test "can tokenize group parts" do
       assert {:ok, {:group, [], %{line_no: 1, col_no: 1}}, %{line_no: 1, col_no: 3}, ""} == Tokenizer.tokenize("()")
     end

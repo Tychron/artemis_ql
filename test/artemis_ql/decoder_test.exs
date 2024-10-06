@@ -16,7 +16,8 @@ defmodule ArtemisQL.DecoderTest do
     test "can decode all value types" do
       assert {:ok, [{:word, "Word", _}], ""} = ArtemisQL.decode("Word")
       assert {:ok, [{:word, "1", _}], ""} = ArtemisQL.decode("1")
-      assert {:ok, [{:word, "1", _}], ".0"} = ArtemisQL.decode("1.0")
+      assert {:ok, [{:word, "1.0", _}], ""} = ArtemisQL.decode("1.0")
+      assert {:ok, [{:word, "1.0E-6", _}], ""} = ArtemisQL.decode("1.0E-6")
       assert {:ok, [{:word, "1-0", _}], ""} = ArtemisQL.decode("1-0")
       assert {:ok, [{:word, "abc_def", _}], ""} = ArtemisQL.decode("abc_def")
       assert {:ok, [{:quote, "1.0", _}], ""} = ArtemisQL.decode("\"1.0\"")

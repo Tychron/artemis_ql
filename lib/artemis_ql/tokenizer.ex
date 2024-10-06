@@ -321,13 +321,62 @@ defmodule ArtemisQL.Tokenizer do
   #
 
   def tokenize(<<rest::binary>>, nil, meta) do
-    case String.split(rest, ~r/\A([@\w_\-]+)/, include_captures: true, parts: 2) do
-      ["", word, rest] ->
+    case tokenize_word(rest) do
+      {:ok, "", rest} ->
+        {:ok, {:eos, nil, meta}, meta, rest}
+
+      {:ok, word, rest} ->
         {:ok, {:word, word, meta}, next_col(meta, byte_size(word)), rest}
 
-      [rest] ->
+      :error ->
         {:ok, {:eos, nil, meta}, meta, rest}
     end
+  end
+
+  defp tokenize_word(rest) when is_binary(rest) do
+    do_tokenize_word(rest, [])
+  end
+
+  defp do_tokenize_word(<<>>, acc) do
+    {:ok, IO.iodata_to_binary(acc), ""}
+  end
+
+  defp do_tokenize_word(
+    <<"..", _rest::binary>> = rest,
+    acc
+  ) do
+    {:ok, IO.iodata_to_binary(acc), rest}
+  end
+
+  defp do_tokenize_word(
+    <<c::utf8, rest::binary>>,
+    acc
+  ) when c in [?@, ?-, ?_, ?.] or
+        (c >= ?A and c <= ?Z) or
+        (c >= ?a and c <= ?z) or
+        (c >= ?0 and c <= ?9) or
+        (c >= 0x00C0 and c < 0x00D7) or
+        (c >= 0x00D8 and c < 0x00F7) or
+        (c >= 0x00F8 and c < 0x0100) or
+        (c >= 0x0180 and c < 0x01C0) or
+        (c >= 0x01C4 and c < 0x02B9) or
+        (c >= 0x0370 and c < 0x0374) or
+        (c >= 0x0376 and c < 0x0378) or
+        (c >= 0x037B and c < 0x037E) or
+        c == 0x037F or c == 0x0386 or
+        (c >= 0x0388 and c < 0x0483) or
+        (c >= 0x048A and c < 0x0530) or
+        (c >= 0x0531 and c < 0xD7FF) or
+        (c >= 0xE000 and c <= 0x10FFFF)
+  do
+    do_tokenize_word(rest, [acc | <<c::utf8>>])
+  end
+
+  defp do_tokenize_word(
+    rest,
+    acc
+  ) do
+    {:ok, IO.iodata_to_binary(acc), rest}
   end
 
   defp trim_leading_spaces_and_newlines(rest, meta, acc \\ [])

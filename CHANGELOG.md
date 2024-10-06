@@ -4,6 +4,7 @@
 
 * Improvement to tokenizer to handle more space characters
 * Quoted strings now support unicode escapes `\u{HEX}`
+* Support for words with period characters (i.e. `192.168.0.1` no longer needs to be quoted)
 
 ## ArtemisQL.Helpers
 

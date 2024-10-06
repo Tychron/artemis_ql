@@ -180,7 +180,7 @@ defmodule ArtemisQL.QueryTransformerTest do
 for type <- [:struct, :module] do
   describe "(#{type}) to_ecto_query/3" do
     test "can gracefully handle missing keys" do
-      {:ok, list, ""} =
+      assert {:ok, list, ""} =
         ArtemisQL.decode("""
         not_found:WHOOP
         """)
@@ -193,7 +193,7 @@ for type <- [:struct, :module] do
     end
 
     test "can take a search list and query to produce a filtered query" do
-      {:ok, list, ""} =
+      assert {:ok, list, ""} =
         ArtemisQL.decode("""
         inserted_at:\"2020-01-27T19:36:55Z\"
         updated_at:2020-01-27

@@ -16,7 +16,8 @@ defmodule ArtemisQL.DecoderTest do
     test "can decode all value types" do
       assert {:ok, [{:word, "Word", _}], ""} = ArtemisQL.decode("Word")
       assert {:ok, [{:word, "1", _}], ""} = ArtemisQL.decode("1")
-      assert {:ok, [{:word, "1", _}], ".0"} = ArtemisQL.decode("1.0")
+      assert {:ok, [{:word, "1.0", _}], ""} = ArtemisQL.decode("1.0")
+      assert {:ok, [{:word, "1.0E-6", _}], ""} = ArtemisQL.decode("1.0E-6")
       assert {:ok, [{:word, "1-0", _}], ""} = ArtemisQL.decode("1-0")
       assert {:ok, [{:word, "abc_def", _}], ""} = ArtemisQL.decode("abc_def")
       assert {:ok, [{:quote, "1.0", _}], ""} = ArtemisQL.decode("\"1.0\"")
@@ -164,6 +165,18 @@ defmodule ArtemisQL.DecoderTest do
         {:group, [{:word, "Value", _}, {:word, "Other", _}], _},
         {:group, [{:word, "Second", _}, {:word, "Group", _}], _},
       ], ""} = ArtemisQL.decode("(Value Other) (Second Group)")
+    end
+
+    test "can parse an implicit nil pair terminated by end of sequence" do
+      assert {:ok, [
+        {:pair, {{:word, "inserted_at", _}, nil}, _}
+      ], ""} = ArtemisQL.decode("inserted_at:")
+    end
+
+    test "can parse an implicit nil pair terminated by space" do
+      assert {:ok, [
+        {:pair, {{:word, "inserted_at", _}, nil}, _}
+      ], ""} = ArtemisQL.decode("inserted_at: ")
     end
 
     test "can parse a pair with a comparator value and partial date" do

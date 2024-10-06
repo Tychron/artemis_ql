@@ -5,11 +5,11 @@ defmodule ArtemisQL.Decoder do
   import ArtemisQL.Tokenizer
   import ArtemisQL.Tokens
 
-  @type token_meta :: ArtemisQL.Tokenizer.token_meta()
+  @type token_meta :: ArtemisQL.Tokens.token_meta()
 
-  @type word_token :: ArtemisQL.Tokenizer.word_token()
+  @type word_token :: ArtemisQL.Tokens.word_token()
 
-  @type quoted_string_token :: ArtemisQL.Tokenizer.quoted_string_token()
+  @type quoted_string_token :: ArtemisQL.Tokens.quoted_string_token()
 
   @type key_token :: word_token() | quoted_string_token()
 
@@ -110,23 +110,28 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_token([r_quote_token(meta: meta) = key_token, {:pair_op, _, _} | tokens]) do
-    case decode_token(tokens) do
-      {:ok, r_token() = value_token, tokens} ->
-        {:ok, {:pair, {key_token, value_token}, meta}, tokens}
+  defp decode_token(
+    [
+      r_token(kind: kind, meta: meta) = key_token,
+      r_pair_op_token()
+      | tokens
+    ]
+  ) when kind in [:quote, :word] do
+    case tokens do
+      [] ->
+        {:ok, {:pair, {key_token, nil}, meta}, tokens}
 
-      {:error, _reason, _tokens} = err ->
-        err
-    end
-  end
+      [r_space_token() | tokens] ->
+        {:ok, {:pair, {key_token, nil}, meta}, tokens}
 
-  defp decode_token([r_word_token(meta: meta) = key_token, {:pair_op, _, _} | tokens]) do
-    case decode_token(tokens) do
-      {:ok, r_token() = value, tokens} ->
-        {:ok, {:pair, {key_token, value}, meta}, tokens}
+      tokens when is_list(tokens) ->
+        case decode_token(tokens) do
+          {:ok, r_token() = value_token, tokens} ->
+            {:ok, {:pair, {key_token, value_token}, meta}, tokens}
 
-      {:error, _reason, _tokens} = err ->
-        err
+          {:error, _reason, _tokens} = err ->
+            err
+        end
     end
   end
 
@@ -158,7 +163,7 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_token(tokens) do
+  defp decode_token(tokens) when is_list(tokens) do
     case decode_value(tokens) do
       {:error, _reason, _tokens} = err ->
         err
@@ -192,7 +197,7 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_list(tokens, acc \\ []) do
+  defp decode_list(tokens, acc \\ []) when is_list(tokens) do
     case decode_value(tokens) do
       {:error, _reason, _tokens} = err ->
         # return the error as is
@@ -214,7 +219,10 @@ defmodule ArtemisQL.Decoder do
 
   defp decode_value(tokens, acc \\ [])
 
-  defp decode_value([r_token(kind: kind) = token | tokens], acc) when kind in [:word, :quote, :range, :cmp, :pin] do
+  defp decode_value(
+    [r_token(kind: kind) = token | tokens],
+    acc
+  ) when kind in [:word, :quote, :range, :cmp, :pin] do
     decode_value(tokens, [token | acc])
   end
 
@@ -225,7 +233,10 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_value([r_token(kind: kind) = token | tokens], acc) when kind in [:wildcard, :any_char, :NULL] do
+  defp decode_value(
+    [r_token(kind: kind) = token | tokens],
+    acc
+  ) when kind in [:wildcard, :any_char, :NULL] do
     decode_value(tokens, [token | acc])
   end
 
@@ -293,11 +304,15 @@ defmodule ArtemisQL.Decoder do
     Enum.reverse(acc)
   end
 
-  defp parse_tokens([r_pin_token(meta: meta), {kind, _value, _meta} = token | tokens], acc) when kind in [:word, :quote] do
+  defp parse_tokens([
+    r_pin_token(meta: meta),
+    {kind, _value, _meta} = token | tokens],
+    acc
+  ) when kind in [:word, :quote] do
     parse_tokens(tokens, [r_pin_token(value: token, meta: meta) | acc])
   end
 
-  defp parse_tokens([{:word, value, meta} | tokens], acc) do
+  defp parse_tokens([r_word_token(value: value, meta: meta) | tokens], acc) do
     case String.upcase(value) do
       "AND" ->
         parse_tokens(tokens, [{:AND, value, meta} | acc])
@@ -316,8 +331,11 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp parse_tokens([{:group, group_tokens, meta} | tokens], acc) do
-    parse_tokens(tokens, [{:group, parse_tokens(group_tokens, []), meta} | acc])
+  defp parse_tokens([r_group_token(items: group_tokens, meta: meta) | tokens], acc) do
+    parse_tokens(
+      tokens,
+      [r_group_token(items: parse_tokens(group_tokens, []), meta: meta) | acc]
+    )
   end
 
   defp parse_tokens([token | tokens], acc) do

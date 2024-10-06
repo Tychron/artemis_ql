@@ -4,7 +4,7 @@ defmodule ArtemisQL.Mapper do
   """
   import ArtemisQL.Tokens
 
-  @type query_op :: :gt | :gte | :lt | :lte | :eq | :neq | :in
+  @type query_op :: :gt | :gte | :lt | :lte | :eq | :neq | :in | :fuzz | :nfuzz
 
   @typedoc """
   Represents a partial (i.e. string that contains wildcards) value.
@@ -127,7 +127,7 @@ defmodule ArtemisQL.Mapper do
   end
 
   defp value_to_search_term(value, _options) when is_binary(value) do
-    if ArtemisQL.Util.should_quote_string?(value) do
+    if ArtemisQL.Utils.should_quote_string?(value) do
       {:ok, {:quote, value, nil}}
     else
       {:ok, {:word, value, nil}}
@@ -412,7 +412,7 @@ defmodule ArtemisQL.Mapper do
   }
 
   defp do_cast_query_item(qi, options) do
-    qi = ArtemisQL.Util.remap_structure(qi, @query_item_remap)
+    qi = ArtemisQL.Utils.remap_structure(qi, @query_item_remap)
 
     with {:ok, value} <- cast_query_item_value(qi[:value], options),
          {:ok, op} <- cast_query_item_op(qi[:op], options) do
@@ -441,7 +441,7 @@ defmodule ArtemisQL.Mapper do
         {:ok, value}
 
       org_val when is_map(org_val) ->
-        val = ArtemisQL.Util.remap_structure(org_val, @query_item_value_remap)
+        val = ArtemisQL.Utils.remap_structure(org_val, @query_item_value_remap)
 
         # convert the map to a list, this is done to ensure only 1 special key is present in the
         # map, anything else is considered any error.

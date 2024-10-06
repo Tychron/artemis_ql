@@ -1,3 +1,15 @@
+# 0.7.0
+
+## General
+
+* Improvement to tokenizer to handle more space characters
+* Quoted strings now support unicode escapes `\u{HEX}`
+* Support for words with period characters (i.e. `192.168.0.1` no longer needs to be quoted)
+
+## ArtemisQL.Helpers
+
+* `partial_to_regex/1` > `partial_to_regex/2` now accepts Regex.compile options
+
 # 0.6.0
 
 This version contains changes heading towards a quality of life improvement update that will be made later.

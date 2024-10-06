@@ -1,117 +1,14 @@
 defmodule ArtemisQL.Tokenizer do
   import ArtemisQL.Tokens
+  import ArtemisQL.Utils
 
-  @type token_meta :: %{
-    line_no: integer(),
-    col_no: integer(),
-  }
+  @type token_meta :: ArtemisQL.Tokens.token_meta()
 
-  @typedoc """
-  All comparison operators recognized by the tokenizer
+  @type token :: ArtemisQL.Tokens.token()
 
-  Operators:
-  * `gte` - `>=`, greater than or equal to
-  * `lte` - `<=`, less than or equal to
-  * `gt` - `>`, greater than
-  * `lt` - `<`, less than
-  * `neq` - `!`, not equal to
-  * `eq` - `=`, equal to
-  * `nfuzz` - `!~`, not fuzzy equal
-  * `fuzz` - `~`, fuzzy equal
-  """
-  @type comparison_operator :: :gte
-                             | :lte
-                             | :gt
-                             | :lt
-                             | :neq
-                             | :eq
-                             | :fuzz
-                             | :nfuzz
+  @type tokens :: ArtemisQL.Tokens.tokens()
 
-  @typedoc """
-  End-of-Stream token, used to mark the end of a search string
-  """
-  @type eos_token :: {:eos, nil, token_meta()}
-
-  @typedoc """
-  Used to represent 1 or more spaces, this includes normal whitespace, tabs, newlines and
-  carriage returns.
-  """
-  @type space_token :: {:space, spaces::String.t(), token_meta()}
-
-  @typedoc """
-  A quoted string is any number of characters originally enclosed in double-quotes ('"')
-  """
-  @type quoted_string_token :: {:quote, String.t(), token_meta()}
-
-  @typedoc """
-  A comparison operator, normally used to add some additional conditional to the value.
-  """
-  @type comparison_operator_token :: {:cmp_op, comparison_operator(), token_meta()}
-
-  @typedoc """
-  The wildcard token is denoted by `*` and generally means match anything, if its used
-  within a set of words or quotes then it acts as a positional matcher.
-  """
-  @type wildcard_token :: {:wildcard, nil, token_meta()}
-
-  @typedoc """
-  The any_char token is denoted by `?`, it will match any one character in a string.
-  """
-  @type any_char_token :: {:any_char, nil, token_meta()}
-
-  @typedoc """
-  The pair operator token is used to denote key:value pairs
-  """
-  @type pair_op_token :: {:pair_op, nil, token_meta()}
-
-  @typedoc """
-  The range operator token is used to denote range pairs (e.g. `1..2`, `1..`, `..2`)
-  """
-  @type range_op_token :: {:range_op, nil, token_meta()}
-
-  @typedoc """
-  The continuation operator is used to denote lists (e.g. `1,2,3,4`)
-  """
-  @type continuation_op_token :: {:continuation_op, nil, token_meta()}
-
-  @typedoc """
-  Pins are used to reference other fields in pair matching, this allows you to compare one field
-  with the other.
-
-  Usage:
-
-    updated_at:>=^expires_at
-  """
-  @type pin_token :: {:pin, nil, token_meta()}
-
-  @typedoc """
-  A word is any unbroken text excluding some special characters (only `_` and `-` are allowed)
-  """
-  @type word_token :: {:word, String.t(), token_meta()}
-
-  @typedoc """
-  Exported tokens are those that will be returned from tokenize_all, this includes all tokens,
-  except :eos, which is used to tell tokenize_all/2 that there are no more tokens to parse.
-  """
-  @type token :: space_token()
-                        | quoted_string_token()
-                        | comparison_operator_token()
-                        | wildcard_token()
-                        | any_char_token()
-                        | pair_op_token()
-                        | range_op_token()
-                        | continuation_op_token()
-                        | pin_token()
-                        | word_token()
-
-  @type tokens :: [token()]
-
-  @typedoc """
-  The 'internal' token is all tokens plus the eos token, it is strictly used for
-  bare bones tokenize
-  """
-  @type internal_token :: eos_token() | token()
+  @type internal_token :: ArtemisQL.Tokens.internal_token()
 
   defmacrop next_col(meta, amount) do
     quote do
@@ -162,27 +59,33 @@ defmodule ArtemisQL.Tokenizer do
 
   Example:
 
-      {:ok, _tokens, ""} = tokenize_all(blob)
+      {:ok, _tokens, meta, ""} = tokenize_all(blob)
 
   """
   @spec tokenize_all(String.t(), acc::tokens(), token_meta()) ::
     {:ok, tokens(), token_meta(), rest::String.t()}
+    | {:error, term()}
   def tokenize_all(
-    blob,
+    rest,
     acc \\ [],
     meta \\ %{line_no: 1, col_no: 1}
-  ) when is_binary(blob) and is_list(acc) and is_map(meta) do
-    case tokenize(blob, nil, meta) do
-      {:ok, {:eos, _, _}, meta, blob} ->
-        {:ok, Enum.reverse(acc), meta, blob}
+  ) when is_binary(rest) and is_list(acc) and is_map(meta) do
+    case tokenize(rest, nil, meta) do
+      {:ok, {:eos, _, _}, meta, rest} ->
+        {:ok, Enum.reverse(acc), meta, rest}
 
-      {:ok, token, meta, blob} ->
-        tokenize_all(blob, [token | acc], meta)
+      {:ok, token, meta, rest} ->
+        tokenize_all(rest, [token | acc], meta)
+
+      {:error, _} = err ->
+        err
     end
   end
 
-  @spec tokenize(String.t(), state::any()) :: {:ok, internal_token(), token_meta(), rest::String.t()}
-  def tokenize(blob, state \\ nil, meta \\ %{line_no: 1, col_no: 1})
+  @spec tokenize(String.t(), state::any()) ::
+    {:ok, internal_token(), token_meta(), rest::String.t()}
+    | {:error, term()}
+  def tokenize(rest, state \\ nil, meta \\ %{line_no: 1, col_no: 1})
 
   #
   # End of String, or End of Sequence
@@ -193,11 +96,15 @@ defmodule ArtemisQL.Tokenizer do
   end
 
   #
-  # Space
+  # Newlines & Spaces
   #
 
-  def tokenize(<<space::utf8, _rest::binary>> = blob, nil, meta) when space in [?\s, ?\t, ?\r, ?\n] do
-    {spaces, rest_meta, rest} = trim_spaces(blob, meta)
+  def tokenize(
+    <<c::utf8, _rest::binary>> = rest,
+    nil,
+    meta
+  ) when is_utf8_newline_like_char(c) or is_utf8_space_like_char(c) do
+    {spaces, rest_meta, rest} = trim_leading_spaces_and_newlines(rest, meta)
     {:ok, r_space_token(value: spaces, meta: meta), rest_meta, rest}
   end
 
@@ -205,8 +112,8 @@ defmodule ArtemisQL.Tokenizer do
   # Quoted Strings
   #
 
-  def tokenize(<<"\"", blob::binary>>, nil, meta) do
-    tokenize(blob, {:quote, [], meta}, next_col(meta))
+  def tokenize(<<"\"", rest::binary>>, nil, meta) do
+    tokenize(rest, {:quote, [], meta}, next_col(meta))
   end
 
   def tokenize("", {:quote, _acc, _qmeta} = token, meta) do
@@ -214,17 +121,35 @@ defmodule ArtemisQL.Tokenizer do
   end
 
   #
-  # Closing quote
+  # Quoted String - Closing quote
   #
-  def tokenize(<<"\"", blob::binary>>, {:quote, acc, qmeta}, meta) do
+  def tokenize(<<"\"", rest::binary>>, {:quote, acc, qmeta}, meta) do
     str = IO.iodata_to_binary(Enum.reverse(acc))
-    {:ok, r_quote_token(value: str, meta: qmeta), next_col(meta), blob}
+    {:ok, r_quote_token(value: str, meta: qmeta), next_col(meta), rest}
   end
 
   #
-  # Escaped forms
+  # Quoted String - Escaped forms
   #
-  def tokenize(<<"\\", c :: utf8, blob::binary>>, {:quote, acc, qmeta}, meta) do
+  def tokenize(<<"\\u{", rest::binary>>, {:quote, acc, qmeta}, meta) do
+    meta = next_col(meta, 3)
+    case tokenize(rest, {:unicode, [], meta}, meta) do
+      {:ok, {:unicode, unicode, _umeta}, meta, <<"}", rest::binary>>} ->
+        c = String.to_integer(unicode, 16)
+        tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, 1))
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  def tokenize(<<"\\u", unicode::binary-size(4), rest::binary>>, {:quote, acc, qmeta}, meta) do
+    meta = next_col(meta, 6)
+    c = String.to_integer(unicode, 16)
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, meta)
+  end
+
+  def tokenize(<<"\\", c::utf8, rest::binary>>, {:quote, acc, qmeta}, meta) do
     col = 1
     {col, acc} =
       case c do
@@ -232,79 +157,126 @@ defmodule ArtemisQL.Tokenizer do
         ?" -> {col + 1, ["\"" | acc]}
         ?0 -> {col + 1, ["\0" | acc]}
         ?n -> {col + 1, ["\n" | acc]}
+        ?f -> {col + 1, ["\f" | acc]}
+        ?b -> {col + 1, ["\b" | acc]}
         ?r -> {col + 1, ["\r" | acc]}
         ?t -> {col + 1, ["\t" | acc]}
+        ?v -> {col + 1, ["\v" | acc]}
         ?s -> {col + 1, ["\s" | acc]}
       end
 
-    tokenize(blob, {:quote, acc, qmeta}, next_col(meta, col))
+    tokenize(rest, {:quote, acc, qmeta}, next_col(meta, col))
   end
 
-  def tokenize(<<"\r\n", blob::binary>>, {:quote, acc, qmeta}, meta) do
-    tokenize(blob, {:quote, ["\r\n" | acc], qmeta}, next_line(meta))
+  def tokenize(
+    <<c1::utf8, c2::utf8, rest::binary>>,
+    {:quote, acc, qmeta},
+    meta
+  ) when is_utf8_twochar_newline(c1, c2) do
+    c = <<c1::utf8, c2::utf8>>
+    tokenize(rest, {:quote, [c | acc], qmeta}, next_line(meta, 1))
   end
 
-  def tokenize(<<"\n", blob::binary>>, {:quote, acc, qmeta}, meta) do
-    tokenize(blob, {:quote, ["\n" | acc], qmeta}, next_line(meta))
+  def tokenize(
+    <<c::utf8, rest::binary>>,
+    {:quote, acc, qmeta},
+    meta
+  ) when is_utf8_newline_like_char(c) do
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_line(meta, 1))
   end
 
-  def tokenize(<<"\r", blob::binary>>, {:quote, acc, qmeta}, meta) do
-    tokenize(blob, {:quote, ["\r" | acc], qmeta}, next_line(meta))
+  def tokenize(
+    <<c::utf8, rest::binary>>,
+    {:quote, acc, qmeta},
+    meta
+  ) when is_utf8_space_like_char(c) do
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, utf8_char_byte_size(c)))
   end
 
-  def tokenize(<<c::utf8, blob::binary>>, {:quote, acc, qmeta}, meta) do
-    tokenize(blob, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta))
+  def tokenize(
+    <<c::utf8, rest::binary>>,
+    {:quote, acc, qmeta},
+    meta
+  ) when c > 0x20 and is_utf8_scalar_char(c) do
+    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, utf8_char_byte_size(c)))
+  end
+
+  #
+  # Quoted String - Unicode sequence
+  #
+  def tokenize(
+    <<c::utf8, rest::binary>>,
+    {:unicode, acc, umeta},
+    meta
+  ) when is_utf8_hex_char(c) do
+    tokenize(rest, {:unicode, [<<c::utf8>> | acc], umeta}, next_col(meta, 1))
+  end
+
+  def tokenize(
+    <<"}", _rest::binary>> = rest,
+    {:unicode, acc, umeta},
+    meta
+  ) do
+    {:ok, {:unicode, IO.iodata_to_binary(Enum.reverse(acc)), umeta}, meta, rest}
+  end
+
+  def tokenize(
+    _rest,
+    {:unicode, _acc, _umeta} = token,
+    meta
+  ) do
+    {:error, {:invalid_unicode_sequence, token, meta}}
   end
 
   #
   # Special Markers
   #
-  def tokenize(<<"^", blob :: binary>>, nil, meta) do
-    {:ok, r_pin_token(meta: meta), next_col(meta), blob}
+  def tokenize(<<"^", rest::binary>>, nil, meta) do
+    {:ok, r_pin_token(meta: meta), next_col(meta), rest}
   end
 
   #
   # Operators
   #
 
-  def tokenize(<<">=", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :gte, meta: meta), next_col(meta, 2), blob}
+  def tokenize(<<">=", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :gte, meta: meta), next_col(meta, 2), rest}
   end
 
-  def tokenize(<<"<=", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :lte, meta: meta), next_col(meta, 2), blob}
+  def tokenize(<<"<=", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :lte, meta: meta), next_col(meta, 2), rest}
   end
 
-  def tokenize(<<"!~", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :nfuzz, meta: meta), next_col(meta, 2), blob}
+  def tokenize(<<"!~", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :nfuzz, meta: meta), next_col(meta, 2), rest}
   end
 
-  def tokenize(<<">", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :gt, meta: meta), next_col(meta), blob}
+  def tokenize(<<">", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :gt, meta: meta), next_col(meta), rest}
   end
 
-  def tokenize(<<"<", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :lt, meta: meta), next_col(meta), blob}
+  def tokenize(<<"<", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :lt, meta: meta), next_col(meta), rest}
   end
 
-  def tokenize(<<"!", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :neq, meta: meta), next_col(meta), blob}
+  def tokenize(<<"!", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :neq, meta: meta), next_col(meta), rest}
   end
 
-  def tokenize(<<"=", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :eq, meta: meta), next_col(meta), blob}
+  def tokenize(<<"=", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :eq, meta: meta), next_col(meta), rest}
   end
 
-  def tokenize(<<"~", blob :: binary>>, nil, meta) do
-    {:ok, r_cmp_op_token(value: :fuzz, meta: meta), next_col(meta), blob}
+  def tokenize(<<"~", rest::binary>>, nil, meta) do
+    {:ok, r_cmp_op_token(value: :fuzz, meta: meta), next_col(meta), rest}
   end
 
   #
   # Group
   #
 
-  def tokenize(<<"(", blob :: binary>>, nil, meta) do
-    case tokenize_all(blob, [], next_col(meta)) do
+  def tokenize(<<"(", rest::binary>>, nil, meta) do
+    case tokenize_all(rest, [], next_col(meta)) do
       {:ok, contents, new_meta, <<")", rest :: binary>>} ->
         {:ok, {:group, contents, meta}, next_col(new_meta), rest}
 
@@ -312,7 +284,7 @@ defmodule ArtemisQL.Tokenizer do
         {:error, {:unterminated_group, contents, new_meta, rest}}
 
       {:error, reason} ->
-        {:error, {:invalid_group, reason, blob, meta}}
+        {:error, {:invalid_group, reason, rest, meta}}
     end
   end
 
@@ -320,67 +292,132 @@ defmodule ArtemisQL.Tokenizer do
   # Wildcards
   #
 
-  def tokenize(<<"*", blob :: binary>>, nil, meta) do
-    {:ok, r_wildcard_token(meta: meta), next_col(meta), blob}
+  def tokenize(<<"*", rest::binary>>, nil, meta) do
+    {:ok, r_wildcard_token(meta: meta), next_col(meta), rest}
   end
 
-  def tokenize(<<"?", blob :: binary>>, nil, meta) do
-    {:ok, r_any_char_token(meta: meta), next_col(meta), blob}
+  def tokenize(<<"?", rest::binary>>, nil, meta) do
+    {:ok, r_any_char_token(meta: meta), next_col(meta), rest}
   end
 
   #
   # Misc
   #
 
-  def tokenize(<<":", blob :: binary>>, nil, meta) do
-    {:ok, {:pair_op, nil, meta}, next_col(meta), blob}
+  def tokenize(<<":", rest::binary>>, nil, meta) do
+    {:ok, {:pair_op, nil, meta}, next_col(meta), rest}
   end
 
-  def tokenize(<<"..", blob :: binary>>, nil, meta) do
-    {:ok, {:range_op, nil, meta}, next_col(meta, 2), blob}
+  def tokenize(<<"..", rest::binary>>, nil, meta) do
+    {:ok, {:range_op, nil, meta}, next_col(meta, 2), rest}
   end
 
-  def tokenize(<<",", blob :: binary>>, nil, meta) do
-    {:ok, {:continuation_op, nil, meta}, next_col(meta), blob}
+  def tokenize(<<",", rest::binary>>, nil, meta) do
+    {:ok, {:continuation_op, nil, meta}, next_col(meta), rest}
   end
 
   #
   # Everything else is just a word
   #
 
-  def tokenize(<<blob :: binary>>, nil, meta) do
-    case String.split(blob, ~r/\A([@\w_\-]+)/, include_captures: true, parts: 2) do
-      ["", word, blob] ->
-        {:ok, {:word, word, meta}, next_col(meta, byte_size(word)), blob}
+  def tokenize(<<rest::binary>>, nil, meta) do
+    case tokenize_word(rest) do
+      {:ok, "", rest} ->
+        {:ok, {:eos, nil, meta}, meta, rest}
 
-      [blob] ->
-        {:ok, {:eos, nil, meta}, meta, blob}
+      {:ok, word, rest} ->
+        {:ok, {:word, word, meta}, next_col(meta, byte_size(word)), rest}
+
+      :error ->
+        {:ok, {:eos, nil, meta}, meta, rest}
     end
   end
 
-  defp trim_spaces(blob, meta, acc \\ [])
-
-  defp trim_spaces(<<"\s", rest::binary>>, meta, acc) do
-    trim_spaces(rest, %{meta | col_no: meta.col_no + 1}, ["\s" | acc])
+  defp tokenize_word(rest) when is_binary(rest) do
+    do_tokenize_word(rest, [])
   end
 
-  defp trim_spaces(<<"\t", rest::binary>>, meta, acc) do
-    trim_spaces(rest, %{meta | col_no: meta.col_no + 1}, ["\t" | acc])
+  defp do_tokenize_word(<<>>, acc) do
+    {:ok, IO.iodata_to_binary(acc), ""}
   end
 
-  defp trim_spaces(<<"\r\n", rest::binary>>, meta, acc) do
-    trim_spaces(rest, %{meta | line_no: meta.line_no + 1, col_no: 1}, ["\r\n" | acc])
+  defp do_tokenize_word(
+    <<"..", _rest::binary>> = rest,
+    acc
+  ) do
+    {:ok, IO.iodata_to_binary(acc), rest}
   end
 
-  defp trim_spaces(<<"\n", rest::binary>>, meta, acc) do
-    trim_spaces(rest, %{meta | line_no: meta.line_no + 1, col_no: 1}, ["\n" | acc])
+  defp do_tokenize_word(
+    <<c::utf8, rest::binary>>,
+    acc
+  ) when c in [?@, ?-, ?_, ?.] or
+        (c >= ?A and c <= ?Z) or
+        (c >= ?a and c <= ?z) or
+        (c >= ?0 and c <= ?9) or
+        (c >= 0x00C0 and c < 0x00D7) or
+        (c >= 0x00D8 and c < 0x00F7) or
+        (c >= 0x00F8 and c < 0x0100) or
+        (c >= 0x0180 and c < 0x01C0) or
+        (c >= 0x01C4 and c < 0x02B9) or
+        (c >= 0x0370 and c < 0x0374) or
+        (c >= 0x0376 and c < 0x0378) or
+        (c >= 0x037B and c < 0x037E) or
+        c == 0x037F or c == 0x0386 or
+        (c >= 0x0388 and c < 0x0483) or
+        (c >= 0x048A and c < 0x0530) or
+        (c >= 0x0531 and c < 0xD7FF) or
+        (c >= 0xE000 and c <= 0x10FFFF)
+  do
+    do_tokenize_word(rest, [acc | <<c::utf8>>])
   end
 
-  defp trim_spaces(<<"\r", rest::binary>>, meta, acc) do
-    trim_spaces(rest, %{meta | line_no: meta.line_no + 1, col_no: 1}, ["\r" | acc])
+  defp do_tokenize_word(
+    rest,
+    acc
+  ) do
+    {:ok, IO.iodata_to_binary(acc), rest}
   end
 
-  defp trim_spaces(rest, meta, acc) do
+  defp trim_leading_spaces_and_newlines(rest, meta, acc \\ [])
+
+  defp trim_leading_spaces_and_newlines(
+    <<c::utf8, rest::binary>>,
+    meta,
+    acc
+  ) when is_utf8_space_like_char(c) do
+    trim_leading_spaces_and_newlines(
+      rest,
+      next_col(meta, utf8_char_byte_size(c)),
+      [<<c::utf8>> | acc]
+    )
+  end
+
+  defp trim_leading_spaces_and_newlines(
+    <<c1::utf8, c2::utf8, rest::binary>>,
+    meta,
+    acc
+  ) when is_utf8_twochar_newline(c1, c2) do
+    trim_leading_spaces_and_newlines(
+      rest,
+      next_line(meta),
+      [<<c1::utf8, c2::utf8>> | acc]
+    )
+  end
+
+  defp trim_leading_spaces_and_newlines(
+    <<c::utf8, rest::binary>>,
+    meta,
+    acc
+  ) when is_utf8_newline_like_char(c) do
+    trim_leading_spaces_and_newlines(
+      rest,
+      next_line(meta),
+      [<<c::utf8>> | acc]
+    )
+  end
+
+  defp trim_leading_spaces_and_newlines(rest, meta, acc) do
     {IO.iodata_to_binary(Enum.reverse(acc)), meta, rest}
   end
 end

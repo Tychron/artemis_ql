@@ -4,7 +4,7 @@ defmodule ArtemisQL.MixProject do
   def project do
     [
       app: :artemis_ql,
-      version: "0.6.0",
+      version: "0.7.0",
       build_path: "_build",
       config_path: "config/config.exs",
       deps_path: "deps",
@@ -33,8 +33,10 @@ defmodule ArtemisQL.MixProject do
 
   defp deps do
     [
+      {:ecto_ulid, "~> 0.3"},
       {:ecto, "~> 3.1"},
       {:timex, "~> 3.6"},
+      {:decimal, "~> 2.0"},
     ]
   end
 

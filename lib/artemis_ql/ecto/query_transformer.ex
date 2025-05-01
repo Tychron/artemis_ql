@@ -4,8 +4,10 @@ defmodule ArtemisQL.Ecto.QueryTransformer.Context do
     search_map: nil,
     options: nil,
     query: nil,
-    assigns: %{},
+    assigns: nil,
   ]
+
+  @type t :: %__MODULE__{}
 end
 
 defmodule ArtemisQL.Ecto.QueryTransformer do
@@ -31,11 +33,16 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
           Ecto.Query.t()
           | abort_result()
   def to_ecto_query(query, list, search_map, options \\ []) when is_list(list) do
+    {query_assigns, options} = Keyword.pop_lazy(options, :query_assigns, fn ->
+      %{}
+    end)
+
     context = %Context{
       search_list: list,
       search_map: search_map,
       query: query,
       options: options,
+      assigns: query_assigns,
     }
 
     result =
@@ -143,9 +150,6 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
 
               {:ok, %Context{} = context} ->
                 case apply_pair_filter(key, value, context) do
-                  {:abort, reason} ->
-                    {:halt, {:abort, reason}}
-
                   %Context{} = context ->
                     {:cont, context}
                 end
@@ -182,6 +186,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
     end
   end
 
+  @spec apply_pair_filter(atom(), any(), Context.t()) :: Context.t()
   defp apply_pair_filter(key, value, %Context{} = context) do
     query = context.query
 

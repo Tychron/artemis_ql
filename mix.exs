@@ -15,6 +15,7 @@ defmodule ArtemisQL.MixProject do
         warnings_as_errors: true,
       ],
       start_permanent: false,
+      aliases: aliases(),
       deps: deps(),
       package: package(),
       source_url: "https://github.com/Tychron/artemis_ql",
@@ -23,9 +24,21 @@ defmodule ArtemisQL.MixProject do
   end
 
   def application do
-    [
-      extra_applications: [:logger]
-    ]
+    base =
+      [
+        extra_applications: [:logger]
+      ]
+
+    case Mix.env() do
+      :test ->
+        [
+          {:mod, {ArtemisQL.Support.Application, []}}
+          | base
+        ]
+
+      _ ->
+        base
+    end
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
@@ -35,6 +48,9 @@ defmodule ArtemisQL.MixProject do
     [
       {:ecto_ulid, "~> 0.3"},
       {:ecto, "~> 3.1"},
+      {:ecto_sql, "~> 3.1", only: [:test]},
+      {:postgrex, "~> 0.11", only: [:test]},
+      {:jason, "~> 1.0", only: [:test]},
       {:timex, "~> 3.6"},
       {:decimal, "~> 2.0"},
     ]
@@ -47,6 +63,15 @@ defmodule ArtemisQL.MixProject do
       links: %{
         "GitHub" => "https://github.com/Tychron/artemis_ql"
       },
+    ]
+  end
+
+  defp aliases do
+    [
+      "ecto.seed": ["run priv/repo/seeds.exs"],
+      "ecto.setup": ["ecto.create", "ecto.migrate"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      test: ["ecto.create --quiet", "ecto.migrate", "test"]
     ]
   end
 end

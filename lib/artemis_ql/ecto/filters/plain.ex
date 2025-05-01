@@ -25,14 +25,14 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
     query
   end
 
-  def apply_type_filter(type, query, key, r_list_token(items: items)) when type in @scalars do
-    items =
-      Enum.map(items, fn r_value_token(value: value) ->
-        value
-      end)
-
-    query
-    |> where([m], field(m, ^key) in ^items)
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_list_token(items: items)
+  ) when type in @scalars do
+    base = dynamic([m], field(m, ^key))
+    handle_scalar_list_query(query, base, items)
   end
 
   def apply_type_filter(type, query, key, r_value_token(value: value)) when type in @scalars do

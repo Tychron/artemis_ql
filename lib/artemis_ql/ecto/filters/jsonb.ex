@@ -11,31 +11,11 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_null_token()
   ) when type in @scalars do
     query
-    |> where([m], is_nil(fragment("?->>?", field(m, ^key), ^a)))
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b]},
-    r_null_token()
-  ) when type in @scalars do
-    query
-    |> where([m], is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_null_token()
-  ) when type in @scalars do
-    query
-    |> where([m], is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
+    |> where([m], is_nil(^make_json_path_fragment(key, keys)))
   end
 
   def apply_type_filter(_type, query, _key, r_wildcard_token()) do
@@ -45,118 +25,39 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_list_token(items: items)
   ) when type in @scalars do
-    items =
-      Enum.map(items, fn r_value_token(value: value) ->
-        value
-      end)
-
-    query
-    |> where([m], fragment("?->>?", field(m, ^key), ^a) in ^items)
+    base = make_json_path_fragment(key, keys)
+    handle_scalar_list_query(query, base, items)
   end
 
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a, b]},
-    r_list_token(items: items)
-  ) when type in @scalars do
-    items =
-      Enum.map(items, fn r_value_token(value: value) ->
-        value
-      end)
-
-    query
-    |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) in ^items)
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_list_token(items: items)
-  ) when type in @scalars do
-    items =
-      Enum.map(items, fn r_value_token(value: value) ->
-        value
-      end)
-
-    query
-    |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) in ^items)
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_pin_token(value: field_name)
   ) when type in @scalars do
     query
-    |> where([m], fragment("?->>?", field(m, ^key), ^a) == field(m, ^field_name))
+    |> where([m], ^make_json_path_fragment(key, keys) == field(m, ^field_name))
   end
 
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a, b]},
-    r_pin_token(value: field_name)
-  ) when type in @scalars do
-    query
-    |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == field(m, ^field_name))
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_pin_token(value: field_name)
-  ) when type in @scalars do
-    query
-    |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == field(m, ^field_name))
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_value_token(value: value)
   ) when type in @scalars do
     value = to_string(value)
 
     query
-    |> where([m], fragment("?->>?", field(m, ^key), ^a) == ^value)
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b]},
-    r_value_token(value: value)
-  ) when type in @scalars do
-    value = to_string(value)
-
-    query
-    |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == ^value)
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_value_token(value: value)
-  ) when type in @scalars do
-    value = to_string(value)
-
-    query
-    |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == ^value)
+    |> where([m], ^make_json_path_fragment(key, keys) == ^value)
   end
 
   def apply_type_filter(
     _type,
     query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_cmp_token(pair: {operator, r_null_token()})
   ) do
     # normally you should only be using either NEQ or EQ in this case, the others are just stupid
@@ -164,329 +65,109 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     case operator do
       op when op in [:gte, :lte, :fuzz] ->
         query
-        |> where([m], is_nil(fragment("?->>?", field(m, ^key), ^a)) or
-          not is_nil(fragment("?->>?", field(m, ^key), ^a)))
+        |> where([m], is_nil(^make_json_path_fragment(key, keys)) or
+          not is_nil(^make_json_path_fragment(key, keys)))
 
       op when op in [:gt, :lt, :neq, :nfuzz] ->
         query
-        |> where([m], not is_nil(fragment("?->>?", field(m, ^key), ^a)))
+        |> where([m], not is_nil(^make_json_path_fragment(key, keys)))
 
       :eq ->
         query
-        |> where([m], is_nil(fragment("?->>?", field(m, ^key), ^a)))
-    end
-  end
-
-  def apply_type_filter(
-    _type,
-    query,
-    {:jsonb, key, [a, b]},
-    r_cmp_token(pair: {operator, r_null_token()})
-  ) do
-    # normally you should only be using either NEQ or EQ in this case, the others are just stupid
-    # placeholders for now
-    case operator do
-      op when op in [:gte, :lte, :fuzz] ->
-        query
-        |> where([m], is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)) or
-          not is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
-
-      op when op in [:gt, :lt, :neq, :nfuzz] ->
-        query
-        |> where([m], not is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
-
-      :eq ->
-        query
-        |> where([m], is_nil(fragment("?->?->>?", field(m, ^key), ^a, ^b)))
-    end
-  end
-
-  def apply_type_filter(
-    _type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_cmp_token(pair: {operator, r_null_token()})
-  ) do
-    # normally you should only be using either NEQ or EQ in this case, the others are just stupid
-    # placeholders for now
-    case operator do
-      op when op in [:gte, :lte, :fuzz] ->
-        query
-        |> where([m], is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)) or
-          not is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
-
-      op when op in [:gt, :lt, :neq, :nfuzz] ->
-        query
-        |> where([m], not is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
-
-      :eq ->
-        query
-        |> where([m], is_nil(fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c)))
+        |> where([m], is_nil(^make_json_path_fragment(key, keys)))
     end
   end
 
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_cmp_token(pair: {operator, r_pin_token(value: field_name)})
   ) when type in @scalars do
     case operator do
       :gte ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) >= field(m, ^field_name))
+        |> where([m], ^make_json_path_fragment(key, keys) >= field(m, ^field_name))
 
       :lte ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) <= field(m, ^field_name))
+        |> where([m], ^make_json_path_fragment(key, keys) <= field(m, ^field_name))
 
       :gt ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) > field(m, ^field_name))
+        |> where([m], ^make_json_path_fragment(key, keys) > field(m, ^field_name))
 
       :lt ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) < field(m, ^field_name))
+        |> where([m], ^make_json_path_fragment(key, keys) < field(m, ^field_name))
 
       :neq ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) != field(m, ^field_name))
+        |> where([m], ^make_json_path_fragment(key, keys) != field(m, ^field_name))
 
       :eq ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) == field(m, ^field_name))
+        |> where([m], ^make_json_path_fragment(key, keys) == field(m, ^field_name))
 
       :fuzz ->
         query
-        |> where([m], fragment("? ILIKE ?", fragment("?->>?", field(m, ^key), ^a), field(m, ^field_name)))
+        |> where([m], fragment("? ILIKE ?", ^make_json_path_fragment(key, keys), field(m, ^field_name)))
 
       :nfuzz ->
         query
-        |> where([m], fragment("? NOT ILIKE ?", fragment("?->>?", field(m, ^key), ^a), field(m, ^field_name)))
+        |> where([m], fragment("? NOT ILIKE ?", ^make_json_path_fragment(key, keys), field(m, ^field_name)))
     end
   end
 
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a, b]},
-    r_cmp_token(pair: {operator, r_pin_token(value: field_name)})
-  ) when type in @scalars do
-    case operator do
-      :gte ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) >= field(m, ^field_name))
-
-      :lte ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) <= field(m, ^field_name))
-
-      :gt ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) > field(m, ^field_name))
-
-      :lt ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) < field(m, ^field_name))
-
-      :neq ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) != field(m, ^field_name))
-
-      :eq ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == field(m, ^field_name))
-
-      :fuzz ->
-        query
-        |> where([m], fragment("? ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), field(m, ^field_name)))
-
-      :nfuzz ->
-        query
-        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), field(m, ^field_name)))
-    end
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_cmp_token(pair: {operator, r_pin_token(value: field_name)})
-  ) when type in @scalars do
-    case operator do
-      :gte ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) >= field(m, ^field_name))
-
-      :lte ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) <= field(m, ^field_name))
-
-      :gt ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) > field(m, ^field_name))
-
-      :lt ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) < field(m, ^field_name))
-
-      :neq ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) != field(m, ^field_name))
-
-      :eq ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == field(m, ^field_name))
-
-      :fuzz ->
-        query
-        |> where([m], fragment("? ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), field(m, ^field_name)))
-
-      :nfuzz ->
-        query
-        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), field(m, ^field_name)))
-    end
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_cmp_token(pair: {operator, r_value_token(value: value)})
   ) when type in @scalars do
     case operator do
       :gte ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) >= ^value)
+        |> where([m], ^make_json_path_fragment(key, keys) >= ^value)
 
       :lte ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) <= ^value)
+        |> where([m], ^make_json_path_fragment(key, keys) <= ^value)
 
       :gt ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) > ^value)
+        |> where([m], ^make_json_path_fragment(key, keys) > ^value)
 
       :lt ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) < ^value)
+        |> where([m], ^make_json_path_fragment(key, keys) < ^value)
 
       :neq ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) != ^value)
+        |> where([m], ^make_json_path_fragment(key, keys) != ^value)
 
       :eq ->
         query
-        |> where([m], fragment("?->>?", field(m, ^key), ^a) == ^value)
+        |> where([m], ^make_json_path_fragment(key, keys) == ^value)
 
       :fuzz ->
         value = "%#{escape_string_for_like(value)}%"
 
         query
-        |> where([m], fragment("? ILIKE ?", fragment("?->>?", field(m, ^key), ^a), ^value))
+        |> where([m], fragment("? ILIKE ?", ^make_json_path_fragment(key, keys), ^value))
 
       :nfuzz ->
         value = "%#{escape_string_for_like(value)}%"
 
         query
-        |> where([m], fragment("? NOT ILIKE ?", fragment("?->>?", field(m, ^key), ^a), ^value))
+        |> where([m], fragment("? NOT ILIKE ?", ^make_json_path_fragment(key, keys), ^value))
     end
   end
 
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a, b]},
-    r_cmp_token(pair: {operator, r_value_token(value: value)})
-  ) when type in @scalars do
-    case operator do
-      :gte ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) >= ^value)
-
-      :lte ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) <= ^value)
-
-      :gt ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) > ^value)
-
-      :lt ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) < ^value)
-
-      :neq ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) != ^value)
-
-      :eq ->
-        query
-        |> where([m], fragment("?->?->>?", field(m, ^key), ^a, ^b) == ^value)
-
-      :fuzz ->
-        value = "%#{escape_string_for_like(value)}%"
-
-        query
-        |> where([m], fragment("? ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), ^value))
-
-      :nfuzz ->
-        value = "%#{escape_string_for_like(value)}%"
-
-        query
-        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->>?", field(m, ^key), ^a, ^b), ^value))
-    end
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_cmp_token(pair: {operator, r_value_token(value: value)})
-  ) when type in @scalars do
-    case operator do
-      :gte ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) >= ^value)
-
-      :lte ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) <= ^value)
-
-      :gt ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) > ^value)
-
-      :lt ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) < ^value)
-
-      :neq ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) != ^value)
-
-      :eq ->
-        query
-        |> where([m], fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c) == ^value)
-
-      :fuzz ->
-        value = "%#{escape_string_for_like(value)}%"
-
-        query
-        |> where([m], fragment("? ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), ^value))
-
-      :nfuzz ->
-        value = "%#{escape_string_for_like(value)}%"
-
-        query
-        |> where([m], fragment("? NOT ILIKE ?", fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c), ^value))
-    end
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_cmp_token(pair: {operator, r_partial_token(items: items)})
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(items)
@@ -495,14 +176,14 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
       op when op in [:lt, :gt, :neq, :nfuzz] ->
         query
         |> where([m], fragment("?::text NOT ILIKE ?",
-          fragment("?->>?", field(m, ^key), ^a),
+          ^make_json_path_fragment(key, keys),
           ^pattern
         ))
 
       op when op in [:gte, :lte, :eq, :fuzz] ->
         query
         |> where([m], fragment("?::text ILIKE ?",
-          fragment("?->>?", field(m, ^key), ^a),
+          ^make_json_path_fragment(key, keys),
           ^pattern
         ))
     end
@@ -511,57 +192,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
   def apply_type_filter(
     type,
     query,
-    {:jsonb, key, [a, b]},
-    r_cmp_token(pair: {operator, r_partial_token(items: items)})
-  ) when type in [:integer, :string] do
-    pattern = partial_to_like_pattern(items)
-
-    case operator do
-      op when op in [:lt, :gt, :neq, :nfuzz] ->
-        query
-        |> where([m], fragment("?::text NOT ILIKE ?",
-          fragment("?->?->>?", field(m, ^key), ^a, ^b),
-          ^pattern
-        ))
-
-      op when op in [:gte, :lte, :eq, :fuzz] ->
-        query
-        |> where([m], fragment("?::text ILIKE ?",
-          fragment("?->?->>?", field(m, ^key), ^a, ^b),
-          ^pattern
-        ))
-    end
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_cmp_token(pair: {operator, r_partial_token(items: items)})
-  ) when type in [:integer, :string] do
-    pattern = partial_to_like_pattern(items)
-
-    case operator do
-      op when op in [:lt, :gt, :neq, :nfuzz] ->
-        query
-        |> where([m], fragment("?::text NOT ILIKE ?",
-          fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c),
-          ^pattern
-        ))
-
-      op when op in [:gte, :lte, :eq, :fuzz] ->
-        query
-        |> where([m], fragment("?::text ILIKE ?",
-          fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c),
-          ^pattern
-        ))
-    end
-  end
-
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a]},
+    {:jsonb, key, keys},
     r_partial_token(items: elements)
   ) when type in [:integer, :string] do
     pattern = partial_to_like_pattern(elements)
@@ -569,43 +200,21 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     query
     |> where([m],
       fragment("?::text ILIKE ?",
-        fragment("?->>?", field(m, ^key), ^a),
+        ^make_json_path_fragment(key, keys),
         ^pattern
       )
     )
   end
 
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b]},
-    r_partial_token(items: elements)
-  ) when type in [:integer, :string] do
-    pattern = partial_to_like_pattern(elements)
-
-    query
-    |> where([m],
-      fragment("?::text ILIKE ?",
-        fragment("?->?->>?", field(m, ^key), ^a, ^b),
-        ^pattern
-      )
-    )
+  defp make_json_path_fragment(key, keys) do
+    do_make_json_path_fragment(dynamic([m], field(m, ^key)), keys)
   end
 
-  def apply_type_filter(
-    type,
-    query,
-    {:jsonb, key, [a, b, c]},
-    r_partial_token(items: elements)
-  ) when type in [:integer, :string] do
-    pattern = partial_to_like_pattern(elements)
+  defp do_make_json_path_fragment(base, [a]) do
+    dynamic([_m], fragment("?->>?", ^base, ^a))
+  end
 
-    query
-    |> where([m],
-      fragment("?::text ILIKE ?",
-        fragment("?->?->?->>?", field(m, ^key), ^a, ^b, ^c),
-        ^pattern
-      )
-    )
+  defp do_make_json_path_fragment(base, [a | keys]) do
+    do_make_json_path_fragment(dynamic([_m], fragment("?->?", ^base, ^a)), keys)
   end
 end

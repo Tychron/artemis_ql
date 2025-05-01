@@ -269,6 +269,14 @@ defmodule ArtemisQL.Types do
     end
   end
 
+  def handle_type_module_transform({:array, element_type}, params, key, value, search_map) do
+    handle_type_module_transform(element_type, params, key, value, search_map)
+  end
+
+  def handle_type_module_transform({:json_array, element_type}, params, key, value, search_map) do
+    handle_type_module_transform(element_type, params, key, value, search_map)
+  end
+
   def handle_enum_module_transform(enum, params, key, value, search_map) do
     value_from_enum(enum, params, key, value, search_map)
   end

@@ -1,5 +1,11 @@
 import Config
 
+# Be a bit quiet, so I can actually debug...
+config :logger,
+  level: :warning,
+  truncate: :infinity,
+  handle_sasl_reports: false
+
 config :artemis_ql, ecto_repos: [ArtemisQL.Support.Repo]
 config :artemis_ql, ArtemisQL.Support.Repo,
   database: "artemis_ql_test",

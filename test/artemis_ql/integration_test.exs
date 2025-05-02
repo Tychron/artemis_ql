@@ -3,6 +3,38 @@ defmodule ArtemisQL.IntegrationTest do
 
   alias ArtemisQL.Support.TestModel
 
+  @operators [">=", "<=", ">", "<", "=", "!", "~", "!~"]
+
+  @all_nil_jmap %{
+    "s" => nil,
+    "i" => nil,
+    "f" => nil,
+    "d" => nil,
+    "b" => nil,
+    "o" => %{
+      "s" => nil,
+      "i" => nil,
+      "f" => nil,
+      "d" => nil,
+      "b" => nil,
+    }
+  }
+
+  @jmap_keys [
+    "jmap_s",
+    "jmap_i",
+    "jmap_f",
+    "jmap_d",
+    "jmap_b",
+    "jmap_o_s",
+    "jmap_o_i",
+    "jmap_o_f",
+    "jmap_o_d",
+    "jmap_o_b",
+  ]
+
+  @jmap_type_codes ["s", "i", "f", "d", "b"]
+
   describe "string queries" do
     setup tags do
       _model1 = insert_test_mode(name: "name1")
@@ -26,9 +58,88 @@ defmodule ArtemisQL.IntegrationTest do
     end
   end
 
+  describe "jsonb queries" do
+    test "can handle null on fields" do
+      _model = insert_test_mode(name: "name", jmap: @all_nil_jmap)
+
+      Enum.each(@jmap_keys, fn key ->
+        assert [%{name: "name"}] = execute_query("#{key}:NULL")
+      end)
+    end
+
+    test "can handle null on fields with logical operators" do
+      _model = insert_test_mode(name: "name", jmap: @all_nil_jmap)
+
+      Enum.each(@operators, fn op ->
+        Enum.each(@jmap_keys, fn key ->
+          query_string = "#{key}:#{op}NULL"
+          case op do
+            op when op in ["=", ">=", "<=", "~"] ->
+              assert [%{name: "name"}] = execute_query(query_string)
+
+            _ ->
+              assert [] == execute_query(query_string)
+          end
+        end)
+      end)
+    end
+
+    test "can handle values on fields with logical operators" do
+      model = insert_test_mode(name: "name", jmap: random_jmap())
+
+      Enum.each(@operators, fn op ->
+        Enum.each(@jmap_type_codes, fn letter ->
+          scalar_query_string = "jmap_#{letter}:#{op}#{model.jmap[letter]}"
+          nested_query_string = "jmap_o_#{letter}:#{op}#{model.jmap["o"][letter]}"
+          case op do
+            op when op in ["=", ">=", "<=", "~"] ->
+              assert [%{name: "name"}] = execute_query(scalar_query_string)
+              assert [%{name: "name"}] = execute_query(nested_query_string)
+
+            _ ->
+              assert [] == execute_query(scalar_query_string)
+              assert [] == execute_query(nested_query_string)
+          end
+        end)
+      end)
+    end
+
+    test "can match on value" do
+      model1 = insert_test_mode(name: "name1", jmap: random_jmap())
+
+      Enum.each(@jmap_type_codes, fn letter ->
+        scalar_query = "jmap_#{letter}:#{model1.jmap[letter]}"
+        nested_scalar_query = "jmap_o_#{letter}:#{model1.jmap["o"][letter]}"
+        assert [%{name: "name1"}] = execute_query(scalar_query)
+        assert [%{name: "name1"}] = execute_query(nested_scalar_query)
+      end)
+    end
+
+    # test "can handle pins" do
+    #   jmap = random_jmap()
+    #   jmap = Map.merge(jmap, jmap["o"])
+    #   model1 = insert_test_mode(name: "name1", jmap: jmap)
+    #   Enum.each(["s", "i", "f", "d", "b"], fn letter ->
+    #     assert [%{name: "model1"}] = execute_query("jmap_#{letter}:^jmap_o_#{letter}")
+    #   end)
+    # end
+
+    test "can handle lists" do
+      model1 = insert_test_mode(name: "name1", jmap: random_jmap())
+      model2 = insert_test_mode(name: "name2", jmap: random_jmap())
+
+      Enum.each(@jmap_type_codes, fn letter ->
+        scalar_query = "jmap_#{letter}:#{model1.jmap[letter]},#{model2.jmap[letter]}"
+        nested_scalar_query = "jmap_o_#{letter}:#{model1.jmap["o"][letter]},#{model2.jmap["o"][letter]}"
+        assert [%{name: "name1"}, %{name: "name2"}] = execute_query(scalar_query)
+        assert [%{name: "name1"}, %{name: "name2"}] = execute_query(nested_scalar_query)
+      end)
+    end
+  end
+
   describe "json array queries" do
     test "can handle null" do
-      model = insert_test_mode(name: "name", jarr: nil)
+      _model = insert_test_mode(name: "name", jarr: nil)
       assert [%{name: "name"}] = execute_query("jarr:NULL")
     end
 
@@ -64,5 +175,22 @@ defmodule ArtemisQL.IntegrationTest do
     ArtemisQL.to_ecto_query(TestModel, query, TestModel.search_spec(), options)
     |> order_by([s], s.name)
     |> ArtemisQL.Support.Repo.all()
+  end
+
+  def random_jmap do
+    %{
+      "s" => ArtemisQL.Random.random_base16_string(16),
+      "i" => ArtemisQL.Random.random_integer(1000),
+      "f" => ArtemisQL.Random.random_float(1000),
+      "d" => ArtemisQL.Random.random_decimal(1000),
+      "b" => ArtemisQL.Random.random_boolean(),
+      "o" => %{
+        "s" => ArtemisQL.Random.random_base16_string(16),
+        "i" => ArtemisQL.Random.random_integer(1000),
+        "f" => ArtemisQL.Random.random_float(1000),
+        "d" => ArtemisQL.Random.random_decimal(1000),
+        "b" => ArtemisQL.Random.random_boolean()
+      }
+    }
   end
 end

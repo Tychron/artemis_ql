@@ -14,8 +14,10 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     {:jsonb, key, keys},
     r_null_token()
   ) when type in @scalars do
+    dyn = dynamic(is_nil(^make_json_path_fragment(type, key, keys)))
+
     query
-    |> where([m], is_nil(^make_json_path_fragment(key, keys)))
+    |> where(^dyn)
   end
 
   def apply_type_filter(_type, query, _key, r_wildcard_token()) do
@@ -28,7 +30,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     {:jsonb, key, keys},
     r_list_token(items: items)
   ) when type in @scalars do
-    base = make_json_path_fragment(key, keys)
+    base = make_json_path_fragment(type, key, keys)
     handle_scalar_list_query(query, base, items)
   end
 
@@ -39,7 +41,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     r_pin_token(value: field_name)
   ) when type in @scalars do
     query
-    |> where([m], ^make_json_path_fragment(key, keys) == field(m, ^field_name))
+    |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) == field(m, ^field_name)))
   end
 
   def apply_type_filter(
@@ -48,14 +50,12 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     {:jsonb, key, keys},
     r_value_token(value: value)
   ) when type in @scalars do
-    value = to_string(value)
-
     query
-    |> where([m], ^make_json_path_fragment(key, keys) == ^value)
+    |> where(^dynamic(^make_json_path_fragment(type, key, keys) == ^value))
   end
 
   def apply_type_filter(
-    _type,
+    type,
     query,
     {:jsonb, key, keys},
     r_cmp_token(pair: {operator, r_null_token()})
@@ -65,16 +65,18 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     case operator do
       op when op in [:gte, :lte, :fuzz] ->
         query
-        |> where([m], is_nil(^make_json_path_fragment(key, keys)) or
-          not is_nil(^make_json_path_fragment(key, keys)))
+        |> where(^dynamic(
+          is_nil(^make_json_path_fragment(type, key, keys)) or
+          not is_nil(^make_json_path_fragment(type, key, keys))
+        ))
 
       op when op in [:gt, :lt, :neq, :nfuzz] ->
         query
-        |> where([m], not is_nil(^make_json_path_fragment(key, keys)))
+        |> where(^dynamic(not is_nil(^make_json_path_fragment(type, key, keys))))
 
       :eq ->
         query
-        |> where([m], is_nil(^make_json_path_fragment(key, keys)))
+        |> where(^dynamic(is_nil(^make_json_path_fragment(type, key, keys))))
     end
   end
 
@@ -87,35 +89,35 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     case operator do
       :gte ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) >= field(m, ^field_name))
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) >= field(m, ^field_name)))
 
       :lte ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) <= field(m, ^field_name))
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) <= field(m, ^field_name)))
 
       :gt ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) > field(m, ^field_name))
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) > field(m, ^field_name)))
 
       :lt ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) < field(m, ^field_name))
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) < field(m, ^field_name)))
 
       :neq ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) != field(m, ^field_name))
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) != field(m, ^field_name)))
 
       :eq ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) == field(m, ^field_name))
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) == field(m, ^field_name)))
 
       :fuzz ->
         query
-        |> where([m], fragment("? ILIKE ?", ^make_json_path_fragment(key, keys), field(m, ^field_name)))
+        |> where(^dynamic([m], fragment("? ILIKE ?", ^make_json_path_fragment(type, key, keys), field(m, ^field_name))))
 
       :nfuzz ->
         query
-        |> where([m], fragment("? NOT ILIKE ?", ^make_json_path_fragment(key, keys), field(m, ^field_name)))
+        |> where(^dynamic([m], fragment("? NOT ILIKE ?", ^make_json_path_fragment(type, key, keys), field(m, ^field_name))))
     end
   end
 
@@ -128,39 +130,49 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     case operator do
       :gte ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) >= ^value)
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) >= ^value))
 
       :lte ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) <= ^value)
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) <= ^value))
 
       :gt ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) > ^value)
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) > ^value))
 
       :lt ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) < ^value)
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) < ^value))
 
       :neq ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) != ^value)
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) != ^value))
 
       :eq ->
         query
-        |> where([m], ^make_json_path_fragment(key, keys) == ^value)
+        |> where(^dynamic([m], ^make_json_path_fragment(type, key, keys) == ^value))
 
       :fuzz ->
-        value = "%#{escape_string_for_like(value)}%"
+        pattern = "%#{escape_string_for_like(to_string(value))}%"
 
         query
-        |> where([m], fragment("? ILIKE ?", ^make_json_path_fragment(key, keys), ^value))
+        |> where(^dynamic(
+          fragment("? ILIKE ?",
+            ^make_json_path_fragment(:string, key, keys),
+            ^pattern
+          )
+        ))
 
       :nfuzz ->
-        value = "%#{escape_string_for_like(value)}%"
+        pattern = "%#{escape_string_for_like(to_string(value))}%"
 
         query
-        |> where([m], fragment("? NOT ILIKE ?", ^make_json_path_fragment(key, keys), ^value))
+        |> where(^dynamic(
+          fragment("? NOT ILIKE ?",
+            ^make_json_path_fragment(:string, key, keys),
+            ^pattern
+          )
+        ))
     end
   end
 
@@ -175,16 +187,20 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     case operator do
       op when op in [:lt, :gt, :neq, :nfuzz] ->
         query
-        |> where([m], fragment("?::text NOT ILIKE ?",
-          ^make_json_path_fragment(key, keys),
-          ^pattern
+        |> where(^dynamic(
+          fragment("?::text NOT ILIKE ?",
+            ^make_json_path_fragment(type, key, keys),
+            ^pattern
+          )
         ))
 
       op when op in [:gte, :lte, :eq, :fuzz] ->
         query
-        |> where([m], fragment("?::text ILIKE ?",
-          ^make_json_path_fragment(key, keys),
-          ^pattern
+        |> where(^dynamic(
+          fragment("?::text ILIKE ?",
+            ^make_json_path_fragment(type, key, keys),
+            ^pattern
+          )
         ))
     end
   end
@@ -198,23 +214,39 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     pattern = partial_to_like_pattern(elements)
 
     query
-    |> where([m],
+    |> where(^dynamic(
       fragment("?::text ILIKE ?",
-        ^make_json_path_fragment(key, keys),
+        ^make_json_path_fragment(type, key, keys),
         ^pattern
       )
-    )
+    ))
   end
 
-  defp make_json_path_fragment(key, keys) do
-    do_make_json_path_fragment(dynamic([m], field(m, ^key)), keys)
+  def make_json_path_fragment(type, key, keys) do
+    do_make_json_path_fragment(type, dynamic([m], field(m, ^key)), keys)
   end
 
-  defp do_make_json_path_fragment(base, [a]) do
-    dynamic([_m], fragment("?->>?", ^base, ^a))
+  defp do_make_json_path_fragment(:integer, base, [a]) do
+    dynamic(fragment("(?->>?)::integer", ^base, ^a))
   end
 
-  defp do_make_json_path_fragment(base, [a | keys]) do
-    do_make_json_path_fragment(dynamic([_m], fragment("?->?", ^base, ^a)), keys)
+  defp do_make_json_path_fragment(:float, base, [a]) do
+    dynamic(fragment("(?->>?)::float", ^base, ^a))
+  end
+
+  defp do_make_json_path_fragment(:decimal, base, [a]) do
+    dynamic(fragment("(?->>?)::decimal", ^base, ^a))
+  end
+
+  defp do_make_json_path_fragment(:boolean, base, [a]) do
+    dynamic(fragment("(?->>?)::boolean", ^base, ^a))
+  end
+
+  defp do_make_json_path_fragment(_type, base, [a]) do
+    dynamic(fragment("?->>?", ^base, ^a))
+  end
+
+  defp do_make_json_path_fragment(type, base, [a | keys]) do
+    do_make_json_path_fragment(type, dynamic(fragment("?->?", ^base, ^a)), keys)
   end
 end

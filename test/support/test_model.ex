@@ -107,7 +107,7 @@ defmodule ArtemisQL.Support.TestModel do
         other_model_id: {:type, :uuid},
       },
       pair_filter: %{
-        id: {:type, :atom},
+        id: {:type, :uuid},
         serial_id: {:type, :integer},
         inserted_at: {:type, :utc_datetime},
         updated_at: {:type, :utc_datetime},

@@ -9,7 +9,9 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
   #
   # Scalars
   #
-  @scalars [:binary_id, :integer, :float, :atom, :string, :decimal, :boolean]
+  @id_scalars [:uuid, :ulid, :binary_id, :atom]
+  @non_id_scalars [:integer, :float, :string, :decimal, :boolean]
+  @scalars @id_scalars ++ @non_id_scalars
 
   def apply_type_filter(_type, query, key, r_null_token()) do
     query
@@ -30,7 +32,24 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
     query,
     key,
     r_list_token(items: items)
-  ) when type in @scalars do
+  ) when type in @id_scalars do
+    # This exists, because something stupid happens with the value casting when using a dynamic
+    # query for any binary id type fields
+    items =
+      Enum.map(items, fn r_value_token(value: value) ->
+        value
+      end)
+
+    query
+    |> where([m], field(m, ^key) in ^items)
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_list_token(items: items)
+  ) when type in @non_id_scalars do
     base = dynamic([m], field(m, ^key))
     handle_scalar_list_query(type, query, base, items)
   end

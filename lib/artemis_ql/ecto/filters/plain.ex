@@ -32,7 +32,7 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
     r_list_token(items: items)
   ) when type in @scalars do
     base = dynamic([m], field(m, ^key))
-    handle_scalar_list_query(query, base, items)
+    handle_scalar_list_query(type, query, base, items)
   end
 
   def apply_type_filter(type, query, key, r_value_token(value: value)) when type in @scalars do

@@ -5,7 +5,8 @@ defmodule ArtemisQL.Ecto.Util do
   @sql_wildcard "%"
   @sql_any_char "_"
 
-  def handle_scalar_list_query(query, field_fragment, items) do
+  @spec handle_scalar_list_query(any(), Ecto.Query.t(), any(), [any()]) :: Ecto.Query.t()
+  def handle_scalar_list_query(_type, query, field_fragment, items) do
     method = determine_list_method(items)
 
     case method do

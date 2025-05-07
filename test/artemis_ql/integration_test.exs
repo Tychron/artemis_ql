@@ -35,6 +35,38 @@ defmodule ArtemisQL.IntegrationTest do
 
   @jmap_type_codes ["s", "i", "f", "d", "b"]
 
+  describe "binary_id queries" do
+    test "can query a record by its binary id" do
+      model = insert_test_mode(name: "name1")
+
+      assert [%{name: "name1"}] = execute_query("id:#{model.id}")
+    end
+
+    test "can query a list of ids" do
+      model1 = insert_test_mode(name: "name1")
+      model2 = insert_test_mode(name: "name2")
+
+      assert [%{name: "name1"}, %{name: "name2"}] =
+        execute_query("id:#{model1.id},#{model2.id}")
+    end
+  end
+
+  describe "integers queries" do
+    test "can query a record by its binary id" do
+      model = insert_test_mode(name: "name1", int: 12)
+
+      assert [%{name: "name1"}] = execute_query("int:#{model.int}")
+    end
+
+    test "can query a list of integers" do
+      model1 = insert_test_mode(name: "name1", int: 12)
+      model2 = insert_test_mode(name: "name2", int: 13)
+
+      assert [%{name: "name1"}, %{name: "name2"}] =
+        execute_query("int:#{model1.int},#{model2.int}")
+    end
+  end
+
   describe "string queries" do
     setup tags do
       _model1 = insert_test_mode(name: "name1")

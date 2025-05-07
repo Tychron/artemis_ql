@@ -31,7 +31,7 @@ defmodule ArtemisQL.Ecto.Filters.JSONB do
     r_list_token(items: items)
   ) when type in @scalars do
     base = make_json_path_fragment(type, key, keys)
-    handle_scalar_list_query(query, base, items)
+    handle_scalar_list_query(type, query, base, items)
   end
 
   def apply_type_filter(

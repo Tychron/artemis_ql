@@ -90,6 +90,81 @@ defmodule ArtemisQL.IntegrationTest do
     end
   end
 
+  describe "enum queries" do
+    setup tags do
+      _model1 = insert_test_mode(name: "name1", enum_i: :i_1)
+      _model2 = insert_test_mode(name: "name2", enum_i: :i_2)
+      _model3 = insert_test_mode(name: "name3", enum_i: :i_3)
+      _model4 = insert_test_mode(name: "name4", enum_i: :i_4)
+
+      _model5 = insert_test_mode(name: "name5", enum_i: :en_1)
+      _model6 = insert_test_mode(name: "name6", enum_i: :en_2)
+      _model7 = insert_test_mode(name: "name7", enum_i: :en_3)
+      _model8 = insert_test_mode(name: "name8", enum_i: :en_4)
+
+      {:ok, tags}
+    end
+
+    test "can lookup models by enum values" do
+      assert [%{name: "name1"}] = execute_query("enum_i:i_1")
+      assert [%{name: "name2"}] = execute_query("enum_i:i_2")
+      assert [%{name: "name3"}] = execute_query("enum_i:i_3")
+      assert [%{name: "name4"}] = execute_query("enum_i:i_4")
+    end
+
+    test "can lookup by a list of enum values" do
+      assert [
+        %{name: "name1"},
+        %{name: "name2"},
+        %{name: "name3"},
+        %{name: "name4"},
+      ] = execute_query("enum_i:i_1,i_2,i_3,i_4")
+    end
+
+    test "can lookup by an enum any char wildcard" do
+      assert [
+        %{name: "name1"},
+        %{name: "name2"},
+        %{name: "name3"},
+        %{name: "name4"},
+      ] = execute_query("enum_i:i_?")
+
+      assert [
+        %{name: "name1"},
+        %{name: "name2"},
+        %{name: "name3"},
+        %{name: "name4"},
+      ] = execute_query("enum_i:?_?")
+
+      assert [
+        %{name: "name5"},
+        %{name: "name6"},
+        %{name: "name7"},
+        %{name: "name8"},
+      ] = execute_query("enum_i:??_?")
+    end
+
+    test "can lookup by a splat wildcard" do
+      assert [
+        %{name: "name1"},
+        %{name: "name5"},
+      ] = execute_query("enum_i:*_1")
+    end
+
+    test "can lookup by a splat and any_char wildcard" do
+      assert [
+        %{name: "name1"},
+        %{name: "name2"},
+        %{name: "name3"},
+        %{name: "name4"},
+        %{name: "name5"},
+        %{name: "name6"},
+        %{name: "name7"},
+        %{name: "name8"},
+      ] = execute_query("enum_i:*_?")
+    end
+  end
+
   describe "jsonb queries" do
     test "can handle null on fields" do
       _model = insert_test_mode(name: "name", jmap: @all_nil_jmap)

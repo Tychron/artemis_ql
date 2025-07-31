@@ -1,6 +1,31 @@
 defmodule ArtemisQL.Support.TestModel do
   use Ecto.Schema
 
+  import EctoEnum, only: [defenum: 2, defenum: 3]
+
+  defenum EnumInt,
+    none: 0,
+    i_1: 1,
+    i_2: 2,
+    i_3: 3,
+    i_4: 4,
+    en_1: 5,
+    en_2: 6,
+    en_3: 7,
+    en_4: 8
+
+  defenum EnumString, :string, [
+    :none,
+    :s_1,
+    :s_2,
+    :s_3,
+    :s_4,
+    :en_1,
+    :en_2,
+    :en_3,
+    :en_4
+  ]
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
@@ -13,6 +38,8 @@ defmodule ArtemisQL.Support.TestModel do
     field :name, :string
     field :notes, :string
 
+    field :enum_i, EnumInt, default: 0
+    field :enum_s, EnumString, default: :none
     field :int, :integer
     field :dec, :decimal
     field :flt, :float
@@ -32,6 +59,15 @@ defmodule ArtemisQL.Support.TestModel do
     belongs_to :other_model, __MODULE__
   end
 
+  @type t :: %__MODULE__{
+    serial_id: integer(),
+    inserted_at: DateTime.t(),
+    updated_at: DateTime.t(),
+    uuid: Ecto.UUID.t(),
+    ulid: Ecto.ULID.t(),
+    other_model_id: Ecto.UUID.t(),
+  }
+
   def search_spec do
     %ArtemisQL.SearchMap{
       allowed_keys: %{
@@ -41,6 +77,9 @@ defmodule ArtemisQL.Support.TestModel do
         "updated_at" => true,
         "name" => true,
         "notes" => true,
+
+        "enum_i" => true,
+        "enum_s" => true,
         "int" => true,
         "dec" => true,
         "flt" => true,
@@ -77,6 +116,10 @@ defmodule ArtemisQL.Support.TestModel do
         updated_at: {:type, :utc_datetime},
         name: {:type, :string},
         notes: {:type, :string},
+
+        enum_i: {:enum, EnumInt},
+        enum_s: {:enum, EnumString},
+
         int: {:type, :integer},
         dec: {:type, :decimal},
         flt: {:type, :float},
@@ -113,6 +156,10 @@ defmodule ArtemisQL.Support.TestModel do
         updated_at: {:type, :utc_datetime},
         name: {:type, :string},
         notes: {:type, :string},
+
+        enum_i: {:type, :atom},
+        enum_s: {:type, :atom},
+
         int: {:type, :integer},
         dec: {:type, :decimal},
         flt: {:type, :float},

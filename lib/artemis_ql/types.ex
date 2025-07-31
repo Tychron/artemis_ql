@@ -301,6 +301,28 @@ defmodule ArtemisQL.Types do
     value_from_enum2(enum, params, key, token, r_value_token(value: value, meta: meta), search_map)
   end
 
+  def value_from_enum(enum, _params, key, r_partial_token(items: items, meta: meta), _search_map) do
+    regex = ArtemisQL.Helpers.partial_to_regex!(items)
+    items =
+      enum.__enum_map__()
+      |> Stream.filter(fn
+        {atom, _} when is_atom(atom) -> true
+        {_, _} -> false
+      end)
+      |> Stream.map(fn {atom, _} ->
+        atom
+      end)
+      |> Stream.filter(fn atom ->
+        str = Atom.to_string(atom)
+        String.match?(str, regex)
+      end)
+      |> Enum.map(fn atom ->
+        r_value_token(value: atom, meta: meta)
+      end)
+
+    {:ok, key, r_list_token(items: items, meta: meta)}
+  end
+
   def value_from_enum(enum, params, key, r_value_token() = token, search_map) do
     value_from_enum2(enum, params, key, token, token, search_map)
   end

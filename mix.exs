@@ -50,6 +50,7 @@ defmodule ArtemisQL.MixProject do
       {:ecto, "~> 3.1"},
       {:ecto_sql, "~> 3.1", only: [:test]},
       {:postgrex, "~> 0.11", only: [:test]},
+      {:ecto_enum, "~> 1.4", only: [:test]},
       {:jason, "~> 1.0", only: [:test]},
       {:timex, "~> 3.6"},
       {:decimal, "~> 2.0"},

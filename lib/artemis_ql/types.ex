@@ -389,6 +389,10 @@ defmodule ArtemisQL.Types do
   @spec recast_token(token::any(), callback::any(), search_map::any()) ::
     {:ok, token::any()}
     | {:error, term()}
+  def recast_token(nil, _callback, _search_map) do
+    {:ok, r_null_token()}
+  end
+
   def recast_token(
     r_pin_token(value: {kind, value, _}, meta: meta) = token,
     _callback,

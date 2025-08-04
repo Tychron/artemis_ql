@@ -49,6 +49,14 @@ defmodule ArtemisQL.IntegrationTest do
       assert [%{name: "name1"}, %{name: "name2"}] =
         execute_query("id:#{model1.id},#{model2.id}")
     end
+
+    test "can query implicit null" do
+      _model1 = insert_test_mode(name: "name1")
+      _model2 = insert_test_mode(name: "name2")
+
+      assert [] =
+        execute_query("id: ")
+    end
   end
 
   describe "integers queries" do
@@ -64,6 +72,13 @@ defmodule ArtemisQL.IntegrationTest do
 
       assert [%{name: "name1"}, %{name: "name2"}] =
         execute_query("int:#{model1.int},#{model2.int}")
+    end
+
+    test "can query implicit null" do
+      _model1 = insert_test_mode(name: "name1", int: nil)
+
+      assert [%{name: "name1"}] =
+        execute_query("int: ")
     end
   end
 
@@ -119,6 +134,13 @@ defmodule ArtemisQL.IntegrationTest do
         %{name: "name3"},
         %{name: "name4"},
       ] = execute_query("enum_i:i_1,i_2,i_3,i_4")
+    end
+
+    test "can lookup models by enum values with mixed" do
+      assert [%{name: "name1"}] = execute_query("enum_i:i_1")
+      assert [%{name: "name2"}] = execute_query("enum_i:i_2")
+      assert [%{name: "name3"}] = execute_query("enum_i:i_3")
+      assert [%{name: "name4"}] = execute_query("enum_i:i_4")
     end
 
     test "can lookup by an enum any char wildcard" do

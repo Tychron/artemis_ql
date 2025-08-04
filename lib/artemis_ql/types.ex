@@ -301,8 +301,14 @@ defmodule ArtemisQL.Types do
     value_from_enum2(enum, params, key, token, r_value_token(value: value, meta: meta), search_map)
   end
 
-  def value_from_enum(enum, _params, key, r_partial_token(items: items, meta: meta), _search_map) do
-    regex = ArtemisQL.Helpers.partial_to_regex!(items)
+  def value_from_enum(enum, params, key, r_partial_token(items: items, meta: meta), _search_map) do
+    regex_options = if Keyword.get(params, :normalize, false) do
+      "i"
+    else
+      ""
+    end
+
+    regex = ArtemisQL.Helpers.partial_to_regex!(items, regex_options)
     items =
       enum.__enum_map__()
       |> Stream.filter(fn

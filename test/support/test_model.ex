@@ -1,4 +1,92 @@
 defmodule ArtemisQL.Support.TestModel do
+  defmodule INET do
+    use Ecto.Type
+
+    @impl true
+    def type, do: :inet
+
+    @impl true
+    def cast(%Postgrex.INET{} = inet) do
+      {:ok, inet}
+    end
+
+    @impl true
+    def cast(nil) do
+      # TODO
+      {:ok, nil}
+    end
+
+    @impl true
+    def cast(str) when is_binary(str) do
+      # TODO
+      :error
+    end
+
+    @impl true
+    def load(%Postgrex.INET{} = inet) do
+      {:ok, inet}
+    end
+
+    @impl true
+    def load(nil) do
+      {:ok, nil}
+    end
+
+    @impl true
+    def dump(%Postgrex.INET{} = inet) do
+      {:ok, inet}
+    end
+
+    @impl true
+    def dump(nil) do
+      {:ok, nil}
+    end
+  end
+
+  defmodule CIDR do
+    use Ecto.Type
+
+    @impl true
+    def type, do: :cidr
+
+    @impl true
+    def cast(%Postgrex.INET{} = inet) do
+      {:ok, inet}
+    end
+
+    @impl true
+    def cast(nil) do
+      # TODO
+      {:ok, nil}
+    end
+
+    @impl true
+    def cast(str) when is_binary(str) do
+      # TODO
+      :error
+    end
+
+    @impl true
+    def load(%Postgrex.INET{} = inet) do
+      {:ok, inet}
+    end
+
+    @impl true
+    def load(nil) do
+      {:ok, nil}
+    end
+
+    @impl true
+    def dump(%Postgrex.INET{} = inet) do
+      {:ok, inet}
+    end
+
+    @impl true
+    def dump(nil) do
+      {:ok, nil}
+    end
+  end
+
   use Ecto.Schema
 
   import EctoEnum, only: [defenum: 2, defenum: 3]
@@ -56,6 +144,9 @@ defmodule ArtemisQL.Support.TestModel do
     field :uuid, Ecto.UUID
     field :ulid, Ecto.ULID
 
+    field :inet, INET
+    field :cidr, CIDR
+
     belongs_to :other_model, __MODULE__
   end
 
@@ -107,6 +198,8 @@ defmodule ArtemisQL.Support.TestModel do
         "nts" => true,
         "uuid" => true,
         "ulid" => true,
+        "inet" => true,
+        "cidr" => true,
         "other_model_id" => true,
       },
       pair_transform: %{
@@ -147,6 +240,8 @@ defmodule ArtemisQL.Support.TestModel do
         nts: {:type, :naive_datetime},
         uuid: {:type, :uuid},
         ulid: {:type, :ulid},
+        inet: {:type, :inet},
+        cidr: {:type, :cidr},
         other_model_id: {:type, :uuid},
       },
       pair_filter: %{
@@ -187,6 +282,8 @@ defmodule ArtemisQL.Support.TestModel do
         nts: {:type, :naive_datetime},
         uuid: {:type, :atom},
         ulid: {:type, :atom},
+        inet: {:type, :inet},
+        cidr: {:type, :cidr},
         other_model_id: {:type, :atom},
       }
     }

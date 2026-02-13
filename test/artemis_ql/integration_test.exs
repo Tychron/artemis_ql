@@ -387,9 +387,15 @@ defmodule ArtemisQL.IntegrationTest do
     import Ecto.Query
 
     options = []
-    ArtemisQL.to_ecto_query(TestModel, query, TestModel.search_spec(), options)
-    |> order_by([s], s.name)
-    |> ArtemisQL.Support.Repo.all()
+    case ArtemisQL.to_ecto_query(TestModel, query, TestModel.search_spec(), options) do
+      {:abort, _} ->
+        flunk "invalid query: #{query}"
+
+      query ->
+        query
+        |> order_by([s], s.name)
+        |> ArtemisQL.Support.Repo.all()
+    end
   end
 
   def random_jmap do

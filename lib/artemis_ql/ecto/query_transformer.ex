@@ -4,8 +4,10 @@ defmodule ArtemisQL.Ecto.QueryTransformer.Context do
     search_map: nil,
     options: nil,
     query: nil,
-    assigns: %{},
+    assigns: nil,
   ]
+
+  @type t :: %__MODULE__{}
 end
 
 defmodule ArtemisQL.Ecto.QueryTransformer do
@@ -24,6 +26,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   @type abort_reason :: KeyNotFound.t()
                       | InvalidEnumValue.t()
                       | UnsupportedSearchTermForField.t()
+                      | term()
 
   @type abort_result :: {:abort, abort_reason()}
 
@@ -31,11 +34,16 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
           Ecto.Query.t()
           | abort_result()
   def to_ecto_query(query, list, search_map, options \\ []) when is_list(list) do
+    {query_assigns, options} = Keyword.pop_lazy(options, :query_assigns, fn ->
+      %{}
+    end)
+
     context = %Context{
       search_list: list,
       search_map: search_map,
       query: query,
       options: options,
+      assigns: query_assigns,
     }
 
     result =
@@ -63,7 +71,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
         line
 
       {:cont, %Context{} = context} ->
-        case Enum.reduce_while(b, context, &handle_item(&1, context)) do
+        case Enum.reduce_while(b, context, &handle_item/2) do
           {:abort, reason} ->
             {:halt, {:abort, reason}}
 
@@ -71,6 +79,20 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
             {:cont, context}
         end
     end
+  end
+
+  defp handle_item(
+    r_or_token(),
+    %Context{}
+  ) do
+    {:halt, {:abort, :unsupported_logical_or}}
+  end
+
+  defp handle_item(
+    {:not, _item, _meta},
+    %Context{}
+  ) do
+    {:halt, {:abort, :unsupported_logical_not}}
   end
 
   defp handle_item(
@@ -143,13 +165,16 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
 
               {:ok, %Context{} = context} ->
                 case apply_pair_filter(key, value, context) do
-                  {:abort, reason} ->
+                  %Context{query: {:abort, reason}} ->
                     {:halt, {:abort, reason}}
 
                   %Context{} = context ->
                     {:cont, context}
                 end
             end
+
+          {:error, reason} ->
+            {:halt, {:abort, reason}}
 
           {:abort, reason} ->
             {:halt, {:abort, reason}}
@@ -182,6 +207,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
     end
   end
 
+  @spec apply_pair_filter(atom(), any(), Context.t()) :: Context.t()
   defp apply_pair_filter(key, value, %Context{} = context) do
     query = context.query
 

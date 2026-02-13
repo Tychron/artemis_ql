@@ -45,4 +45,34 @@ defmodule ArtemisQL.Ecto.QueryError do
     A keyword pair is required for this search.
     """
   end
+
+  def message(%__MODULE__{reason: :unsupported_logical_or}) do
+    """
+    `OR` expressions are not supported by this query transformer.
+    """
+  end
+
+  def message(%__MODULE__{reason: :unsupported_logical_not}) do
+    """
+    `NOT` expressions are not supported by this query transformer.
+    """
+  end
+
+  def message(%__MODULE__{reason: {:empty_group, key}}) do
+    """
+    `#{key}:()` is not a valid search term.
+    """
+  end
+
+  def message(%__MODULE__{reason: {:empty_value, key}}) do
+    """
+    `#{key}:` is not a valid search term.
+    """
+  end
+
+  def message(%__MODULE__{reason: reason}) do
+    """
+    Query transformation failed: #{inspect(reason)}
+    """
+  end
 end

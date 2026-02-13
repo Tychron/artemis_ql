@@ -35,7 +35,10 @@ defmodule ArtemisQL.Utils do
   }
 
   defguard is_utf8_bom_char(c) when c == 0xFEFF
-  defguard is_utf8_digit_char(c) when c >= ?0 and c <= ?9
+  defguard is_utf8_binary_digit(c) when c >= ?0 and c <= ?1
+  defguard is_utf8_octal_digit(c) when c >= ?0 and c <= ?7
+  defguard is_utf8_decimal_digit(c) when c >= ?0 and c <= ?9
+  defguard is_utf8_hex_digit(c) when (c >= ?0 and c <= ?9) or (c >= ?A and c <= ?F) or (c >= ?a and c <= ?f)
   defguard is_utf8_scalar_char(c) when
     (c >= 0x0000 and c <= 0xD7FF) or
     (c >= 0xE000 and c <= 0x10FFFF)
@@ -173,6 +176,125 @@ defmodule ArtemisQL.Utils do
 
   def split_spaces_and_newlines(rest, acc) do
     {list_to_utf8_binary(Enum.reverse(acc)), rest}
+  end
+
+  @spec normalize_decimal_string(String.t()) :: {:ok, String.t()} | :error
+  def normalize_decimal_string(str) do
+    normalize_decimal_string(str, :^, [])
+  end
+
+  @spec normalize_decimal_string(String.t(), :d | :u, [integer()]) :: {:ok, String.t()} | :error
+  def normalize_decimal_string(<<>>, :d, acc) do
+    result =
+      acc
+      |> Enum.reverse()
+      |> list_to_utf8_binary()
+
+    {:ok, result}
+  end
+
+  def normalize_decimal_string(<<c::utf8, rest::binary>>, :^, acc) when c in [?+, ?-] do
+    normalize_decimal_string(rest, :s, [c | acc])
+  end
+
+  def normalize_decimal_string(<<?_, _rest::binary>>, :u, _acc) do
+    :error
+  end
+
+  def normalize_decimal_string(<<?_, rest::binary>>, :d, acc) do
+    normalize_decimal_string(rest, :u, acc)
+  end
+
+  def normalize_decimal_string(<<c::utf8, rest::binary>>, state, acc) do
+    # this doesn't really validate the structure of the decimal, like normalize_inetger_string does
+    case c do
+      c when c in [?., ?+, ?-, ?e, ?E] ->
+        case state do
+          s when s in [:^, :d, :s] ->
+            normalize_decimal_string(rest, :s, [c | acc])
+
+          :u ->
+            :error
+        end
+
+      c when is_utf8_decimal_digit(c) ->
+        normalize_decimal_string(rest, :d, [c | acc])
+
+      _ ->
+        :error
+    end
+  end
+
+  def normalize_decimal_string(<<>>, _state, _acc) do
+    :error
+  end
+
+  @spec parse_integer(String.t()) :: {:ok, integer()} | :error
+  def parse_integer(<<"0b", value::binary>>), do: parse_integer(value, 2)
+  def parse_integer(<<"0B", value::binary>>), do: parse_integer(value, 2)
+  def parse_integer(<<"0o", value::binary>>), do: parse_integer(value, 8)
+  def parse_integer(<<"0O", value::binary>>), do: parse_integer(value, 8)
+  def parse_integer(<<"0x", value::binary>>), do: parse_integer(value, 16)
+  def parse_integer(<<"0X", value::binary>>), do: parse_integer(value, 16)
+  def parse_integer(value), do: parse_integer(value, 10)
+
+  def parse_integer(<<>>, _base), do: :error
+
+  def parse_integer(value, base) do
+    with {:ok, value} <- normalize_integer_string(value, base) do
+      case Integer.parse(value, base) do
+        {value, ""} ->
+          {:ok, value}
+
+        _ ->
+          :error
+      end
+    else
+      :error ->
+        :error
+    end
+  end
+
+  @spec normalize_integer_string(String.t(), integer()) ::
+    {:ok, String.t()}
+    | :error
+  def normalize_integer_string(rest, base) do
+    normalize_integer_string(rest, base, :u, [])
+  end
+
+  @spec normalize_integer_string(String.t(), integer(), :u | :d, [integer()]) ::
+    {:ok, String.t()}
+    | :error
+  def normalize_integer_string(<<>>, _base, :u, _acc) do
+    :error
+  end
+
+  def normalize_integer_string(<<>>, _base, :d, acc) do
+    result =
+      acc
+      |> Enum.reverse()
+      |> list_to_utf8_binary()
+
+    {:ok, result}
+  end
+
+  def normalize_integer_string(<<?_, _rest::binary>>, _base, :u, _acc) do
+    :error
+  end
+
+  def normalize_integer_string(<<?_, rest::binary>>, base, :d, acc) do
+    normalize_integer_string(rest, base, :u, acc)
+  end
+
+  def normalize_integer_string(<<c::utf8, rest::binary>>, base, _, acc) do
+    if (base == 2 and is_utf8_binary_digit(c)) or
+       (base == 8 and is_utf8_octal_digit(c)) or
+       (base == 10 and is_utf8_decimal_digit(c)) or
+       (base == 16 and is_utf8_hex_digit(c)) do
+      normalize_integer_string(rest, base, :d, [c | acc])
+    else
+      :error
+    end
   end
 
   @doc """

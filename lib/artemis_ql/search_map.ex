@@ -143,6 +143,7 @@ defmodule ArtemisQL.SearchMap do
     end
   end
 
+  @spec normalize_key(String.t() | atom()) :: String.t()
   defp normalize_key(key) when is_binary(key) do
     key
     |> String.downcase()
@@ -152,6 +153,7 @@ defmodule ArtemisQL.SearchMap do
     normalize_key(Atom.to_string(key))
   end
 
+  @spec suggest_keys(t(), atom()) :: [atom()]
   def suggest_keys(%__MODULE__{} = search_map, key) do
     normalized_key = normalize_key(key)
 

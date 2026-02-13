@@ -135,8 +135,18 @@ defmodule ArtemisQL.Tokenizer do
     meta = next_col(meta, 3)
     case tokenize(rest, {:unicode, [], meta}, meta) do
       {:ok, {:unicode, unicode, _umeta}, meta, <<"}", rest::binary>>} ->
-        c = String.to_integer(unicode, 16)
-        tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, 1))
+        case Integer.parse(unicode, 16) do
+          {c, ""} ->
+            try do
+              tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, next_col(meta, 1))
+            rescue
+              ArgumentError ->
+                {:error, {:invalid_unicode_sequence, {:unicode, unicode, meta}, meta}}
+            end
+
+          _ ->
+            {:error, {:invalid_unicode_sequence, {:unicode, unicode, meta}, meta}}
+        end
 
       {:error, _} = err ->
         err
@@ -145,27 +155,64 @@ defmodule ArtemisQL.Tokenizer do
 
   def tokenize(<<"\\u", unicode::binary-size(4), rest::binary>>, {:quote, acc, qmeta}, meta) do
     meta = next_col(meta, 6)
-    c = String.to_integer(unicode, 16)
-    tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, meta)
+    case Integer.parse(unicode, 16) do
+      {c, ""} ->
+        try do
+          tokenize(rest, {:quote, [<<c::utf8>> | acc], qmeta}, meta)
+        rescue
+          ArgumentError ->
+            {:error, {:invalid_unicode_sequence, {:unicode, unicode, meta}, meta}}
+        end
+
+      _ ->
+        {:error, {:invalid_unicode_sequence, {:unicode, unicode, meta}, meta}}
+    end
   end
 
   def tokenize(<<"\\", c::utf8, rest::binary>>, {:quote, acc, qmeta}, meta) do
     col = 1
-    {col, acc} =
-      case c do
-        ?\\ -> {col + 1, ["\\" | acc]}
-        ?" -> {col + 1, ["\"" | acc]}
-        ?0 -> {col + 1, ["\0" | acc]}
-        ?n -> {col + 1, ["\n" | acc]}
-        ?f -> {col + 1, ["\f" | acc]}
-        ?b -> {col + 1, ["\b" | acc]}
-        ?r -> {col + 1, ["\r" | acc]}
-        ?t -> {col + 1, ["\t" | acc]}
-        ?v -> {col + 1, ["\v" | acc]}
-        ?s -> {col + 1, ["\s" | acc]}
-      end
+    case c do
+      ?\\ ->
+        tokenize(rest, {:quote, ["\\" | acc], qmeta}, next_col(meta, col + 1))
 
-    tokenize(rest, {:quote, acc, qmeta}, next_col(meta, col))
+      ?" ->
+        tokenize(rest, {:quote, ["\"" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?0 ->
+        tokenize(rest, {:quote, ["\0" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?n ->
+        tokenize(rest, {:quote, ["\n" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?f ->
+        tokenize(rest, {:quote, ["\f" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?b ->
+        tokenize(rest, {:quote, ["\b" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?r ->
+        tokenize(rest, {:quote, ["\r" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?t ->
+        tokenize(rest, {:quote, ["\t" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?v ->
+        tokenize(rest, {:quote, ["\v" | acc], qmeta}, next_col(meta, col + 1))
+
+      ?s ->
+        tokenize(rest, {:quote, ["\s" | acc], qmeta}, next_col(meta, col + 1))
+
+      _ ->
+        {:error, {:invalid_escape_sequence, c, meta}}
+    end
+  end
+
+  def tokenize(
+    <<c::utf8, _rest::binary>>,
+    {:quote, _acc, _qmeta},
+    meta
+  ) when c < 0x20 or c == 0x7F do
+    {:error, {:invalid_control_character, c, meta}}
   end
 
   def tokenize(
@@ -351,7 +398,7 @@ defmodule ArtemisQL.Tokenizer do
   defp do_tokenize_word(
     <<c::utf8, rest::binary>>,
     acc
-  ) when c in [?@, ?-, ?_, ?.] or
+  ) when c in [?@, ?-, ?+, ?_, ?., ?/] or
         (c >= ?A and c <= ?Z) or
         (c >= ?a and c <= ?z) or
         (c >= ?0 and c <= ?9) or

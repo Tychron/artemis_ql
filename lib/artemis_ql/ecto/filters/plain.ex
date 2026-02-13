@@ -5,11 +5,14 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
   import ArtemisQL.Ecto.Util
 
   @date_or_time_types [:date, :time, :datetime, :utc_datetime, :naive_datetime]
+  @network_types [:inet, :cidr]
 
   #
   # Scalars
   #
-  @scalars [:binary_id, :integer, :float, :atom, :string, :decimal, :boolean]
+  @id_scalars [:uuid, :ulid, :binary_id, :atom]
+  @non_id_scalars [:integer, :float, :string, :decimal, :boolean]
+  @scalars @id_scalars ++ @non_id_scalars
 
   def apply_type_filter(_type, query, key, r_null_token()) do
     query
@@ -25,7 +28,30 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
     query
   end
 
-  def apply_type_filter(type, query, key, r_list_token(items: items)) when type in @scalars do
+  def apply_type_filter(type, query, key, r_value_token(value: value)) when type in @network_types do
+    apply_network_compare(type, query, key, :eq, value)
+  end
+
+  def apply_type_filter(type, query, key, r_cmp_token(pair: {operator, r_value_token(value: value)}))
+    when type in @network_types do
+    operator =
+      case operator do
+        :fuzz -> :eq
+        :nfuzz -> :neq
+        other -> other
+      end
+
+    apply_network_compare(type, query, key, operator, value)
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_list_token(items: items)
+  ) when type in @id_scalars do
+    # This exists, because something stupid happens with the value casting when using a dynamic
+    # query for any binary id type fields
     items =
       Enum.map(items, fn r_value_token(value: value) ->
         value
@@ -35,17 +61,27 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
     |> where([m], field(m, ^key) in ^items)
   end
 
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_list_token(items: items)
+  ) when type in @non_id_scalars or type in @network_types do
+    base = dynamic([m], field(m, ^key))
+    handle_scalar_list_query(type, query, base, items)
+  end
+
   def apply_type_filter(type, query, key, r_value_token(value: value)) when type in @scalars do
     query
     |> where([m], field(m, ^key) == ^value)
   end
 
   def apply_type_filter(
-    _type,
+    type,
     query,
     key,
     r_cmp_token(pair: {operator, r_null_token()})
-  ) do
+  ) when type not in @network_types do
     # normally you should only be using either NEQ or EQ in this case, the others are just stupid
     # placeholders for now
     case operator do
@@ -80,6 +116,34 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
       :nfuzz ->
         query
         |> where([m], not is_nil(field(m, ^key)))
+    end
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_cmp_token(pair: {operator, r_null_token()})
+  ) when type in @network_types do
+    operator =
+      case operator do
+        :fuzz -> :eq
+        :nfuzz -> :neq
+        other -> other
+      end
+
+    case operator do
+      op when op in [:gte, :lte] ->
+        query
+        |> where([m], is_nil(field(m, ^key)) or not is_nil(field(m, ^key)))
+
+      op when op in [:gt, :lt, :neq] ->
+        query
+        |> where([m], not is_nil(field(m, ^key)))
+
+      :eq ->
+        query
+        |> where([m], is_nil(field(m, ^key)))
     end
   end
 
@@ -180,6 +244,20 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
       query,
       key,
       r_cmp_token(pair: {operator, r_group_token(items: [r_list_token(items: [item])])})
+    )
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    key,
+    r_cmp_token(pair: {operator, r_list_token(items: items)})
+  ) when type in @scalars do
+    apply_type_filter(
+      type,
+      query,
+      key,
+      r_cmp_token(pair: {operator, r_group_token(items: [r_list_token(items: items)])})
     )
   end
 
@@ -517,6 +595,62 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
 
         query
         |> where([m], field(m, ^key) == ^date)
+    end
+  end
+
+  defp apply_network_compare(:inet, query, key, operator, value) do
+    case operator do
+      :gte ->
+        query
+        |> where([m], fragment("?::inet >= ?::inet", field(m, ^key), ^value))
+
+      :lte ->
+        query
+        |> where([m], fragment("?::inet <= ?::inet", field(m, ^key), ^value))
+
+      :gt ->
+        query
+        |> where([m], fragment("?::inet > ?::inet", field(m, ^key), ^value))
+
+      :lt ->
+        query
+        |> where([m], fragment("?::inet < ?::inet", field(m, ^key), ^value))
+
+      :neq ->
+        query
+        |> where([m], fragment("?::inet != ?::inet", field(m, ^key), ^value))
+
+      :eq ->
+        query
+        |> where([m], fragment("?::inet = ?::inet", field(m, ^key), ^value))
+    end
+  end
+
+  defp apply_network_compare(:cidr, query, key, operator, value) do
+    case operator do
+      :gte ->
+        query
+        |> where([m], fragment("?::cidr >= ?::cidr", field(m, ^key), ^value))
+
+      :lte ->
+        query
+        |> where([m], fragment("?::cidr <= ?::cidr", field(m, ^key), ^value))
+
+      :gt ->
+        query
+        |> where([m], fragment("?::cidr > ?::cidr", field(m, ^key), ^value))
+
+      :lt ->
+        query
+        |> where([m], fragment("?::cidr < ?::cidr", field(m, ^key), ^value))
+
+      :neq ->
+        query
+        |> where([m], fragment("?::cidr != ?::cidr", field(m, ^key), ^value))
+
+      :eq ->
+        query
+        |> where([m], fragment("?::cidr = ?::cidr", field(m, ^key), ^value))
     end
   end
 end

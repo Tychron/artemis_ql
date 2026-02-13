@@ -1,11 +1,11 @@
 defmodule ArtemisQL.Types do
-  alias ArtemisQL.Types.ValueTransformError
   alias ArtemisQL.SearchMap
   alias ArtemisQL.Errors.KeyNotFound
   alias ArtemisQL.Errors.InvalidEnumValue
   alias ArtemisQL.Errors.UnsupportedSearchTermForField
 
   import ArtemisQL.Tokens
+  import ArtemisQL.Typecasts
 
   @doc """
   Attempts to filter the given key against the search_map, if the key is not in the map
@@ -68,14 +68,77 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) do
+  def handle_pair_transform(
+    type,
+    key,
+    r_group_token(items: [r_group_token() = child]),
+    search_map
+  ) do
+    handle_pair_transform(type, key, child, search_map)
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: []), _search_map) when type != nil do
+    {:abort, {:empty_group, key}}
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: [r_wildcard_token()]), _search_map) when type != nil do
+    {:ok, key, r_wildcard_token()}
+  end
+
+  def handle_pair_transform(
+    type,
+    key,
+    r_group_token(items: [r_any_char_token() = token], meta: meta),
+    _search_map
+  ) when type != nil do
+    {:ok, key, r_partial_token(items: [token], meta: meta)}
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) when type != nil do
     case handle_pair_transform(type, key, item, search_map) do
-      {:ok, key, r_token() = value_token} ->
-        {:ok, key, r_group_token(items: [value_token])}
+      {:ok, key, r_token(kind: kind) = value_token} when kind in [:value, :list, :partial] ->
+        {:ok, key, value_token}
+
+      {:ok, _key, _token} ->
+        reason =
+          %UnsupportedSearchTermForField{
+            meta: %{
+              type: type,
+            },
+            key: key,
+            token: item,
+            search_map: search_map
+          }
+
+        {:abort, reason}
 
       {:abort, reason} ->
         {:abort, reason}
     end
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) do
+    case handle_pair_transform(type, key, item, search_map) do
+      {:ok, key, r_token() = value_token} ->
+        {:ok, key, value_token}
+
+      {:abort, reason} ->
+        {:abort, reason}
+    end
+  end
+
+  def handle_pair_transform(type, key, r_group_token() = token, search_map) when type != nil do
+    reason =
+      %UnsupportedSearchTermForField{
+        meta: %{
+          type: type,
+        },
+        key: key,
+        token: token,
+        search_map: search_map
+      }
+
+    {:abort, reason}
   end
 
   def handle_pair_transform(type, key, r_list_token(items: items), search_map) do
@@ -83,7 +146,18 @@ defmodule ArtemisQL.Types do
       Enum.reduce(items, {key, []}, fn value, {key, acc} ->
         case handle_pair_transform(type, key, value, search_map) do
           {:ok, key, r_token() = value} ->
-            {key, [value | acc]}
+            case value do
+              r_list_token(items: nested_items) ->
+                acc =
+                  Enum.reduce(nested_items, acc, fn nested_item, acc ->
+                    [nested_item | acc]
+                  end)
+
+                {key, acc}
+
+              _ ->
+                {key, [value | acc]}
+            end
 
           {:abort, reason} ->
             throw {:abort, reason}
@@ -105,6 +179,10 @@ defmodule ArtemisQL.Types do
 
   def handle_pair_transform(nil, key, r_token() = value, _search_map) do
     {:ok, key, value}
+  end
+
+  def handle_pair_transform(type, key, nil, _search_map) when type != nil do
+    {:abort, {:empty_value, key}}
   end
 
   def handle_pair_transform({:type, module}, key, value, search_map) do
@@ -180,7 +258,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:integer, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:integer, &1), search_map) do
+    case recast_token(value, &cast_integer/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -190,7 +268,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:float, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:float, &1), search_map) do
+    case recast_token(value, &cast_float/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -200,7 +278,27 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:decimal, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:decimal, &1), search_map) do
+    case recast_token(value, &cast_decimal/1, search_map) do
+      {:ok, token} ->
+        {:ok, key, token}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  def handle_type_module_transform(:inet, _params, key, value, search_map) do
+    case recast_token(value, &cast_inet/1, search_map) do
+      {:ok, token} ->
+        {:ok, key, token}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  def handle_type_module_transform(:cidr, _params, key, value, search_map) do
+    case recast_token(value, &cast_cidr/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -269,6 +367,14 @@ defmodule ArtemisQL.Types do
     end
   end
 
+  def handle_type_module_transform({:array, element_type}, params, key, value, search_map) do
+    handle_type_module_transform(element_type, params, key, value, search_map)
+  end
+
+  def handle_type_module_transform({:json_array, element_type}, params, key, value, search_map) do
+    handle_type_module_transform(element_type, params, key, value, search_map)
+  end
+
   def handle_enum_module_transform(enum, params, key, value, search_map) do
     value_from_enum(enum, params, key, value, search_map)
   end
@@ -291,6 +397,34 @@ defmodule ArtemisQL.Types do
 
   def value_from_enum(enum, params, key, r_quote_token(value: value, meta: meta) = token, search_map) do
     value_from_enum2(enum, params, key, token, r_value_token(value: value, meta: meta), search_map)
+  end
+
+  def value_from_enum(enum, params, key, r_partial_token(items: items, meta: meta), _search_map) do
+    regex_options = if Keyword.get(params, :normalize, false) do
+      "i"
+    else
+      ""
+    end
+
+    regex = ArtemisQL.Helpers.partial_to_regex!(items, regex_options)
+    items =
+      enum.__enum_map__()
+      |> Stream.filter(fn
+        {atom, _} when is_atom(atom) -> true
+        {_, _} -> false
+      end)
+      |> Stream.map(fn {atom, _} ->
+        atom
+      end)
+      |> Stream.filter(fn atom ->
+        str = Atom.to_string(atom)
+        String.match?(str, regex)
+      end)
+      |> Enum.map(fn atom ->
+        r_value_token(value: atom, meta: meta)
+      end)
+
+    {:ok, key, r_list_token(items: items, meta: meta)}
   end
 
   def value_from_enum(enum, params, key, r_value_token() = token, search_map) do
@@ -359,6 +493,10 @@ defmodule ArtemisQL.Types do
   @spec recast_token(token::any(), callback::any(), search_map::any()) ::
     {:ok, token::any()}
     | {:error, term()}
+  def recast_token(nil, _callback, _search_map) do
+    {:ok, r_null_token()}
+  end
+
   def recast_token(
     r_pin_token(value: {kind, value, _}, meta: meta) = token,
     _callback,
@@ -453,63 +591,6 @@ defmodule ArtemisQL.Types do
 
   def normalize_value(value) do
     {:ok, value}
-  end
-
-  @spec cast_uuid(binary()) :: {:ok, String.t()} | :error
-  def cast_uuid(str) do
-    Ecto.UUID.cast(str)
-  end
-
-  @spec cast_ulid(binary()) :: {:ok, String.t()} | :error
-  def cast_ulid(str) do
-    Ecto.ULID.cast(str)
-  end
-
-  @spec cast_boolean(String.t()) :: {:ok, boolean()}
-  def cast_boolean(value) when is_binary(value) do
-    case String.downcase(value) do
-      v when v in ~w[yes y 1 true t on] ->
-        {:ok, true}
-
-      v when v in ~w[no n 0 false f off] ->
-        {:ok, false}
-
-      _ ->
-        :error
-    end
-  end
-
-  @spec cast_atom(String.t()) :: {:ok, atom()}
-  def cast_atom(str) do
-    {:ok, String.to_existing_atom(str)}
-  end
-
-  @spec cast_date(String.t()) :: {:ok, Date.t()}
-  def cast_date(value) do
-    {:ok, ArtemisQL.Types.DateAndTime.parse_date(value)}
-  rescue _ex in ValueTransformError ->
-    :error
-  end
-
-  @spec cast_time(String.t()) :: {:ok, Time.t()}
-  def cast_time(value) do
-    {:ok, ArtemisQL.Types.DateAndTime.parse_time(value)}
-  rescue _ex in ValueTransformError ->
-    :error
-  end
-
-  @spec cast_datetime(String.t()) :: {:ok, Time.t()}
-  def cast_datetime(value) do
-    {:ok, ArtemisQL.Types.DateAndTime.parse_datetime(value)}
-  rescue _ex in ValueTransformError ->
-    :error
-  end
-
-  @spec cast_naive_datetime(String.t()) :: {:ok, Time.t()}
-  def cast_naive_datetime(value) do
-    {:ok, ArtemisQL.Types.DateAndTime.parse_naive_datetime(value)}
-  rescue _ex in ValueTransformError ->
-    :error
   end
 
   #

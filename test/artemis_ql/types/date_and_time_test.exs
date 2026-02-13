@@ -54,7 +54,7 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
     test "works with period words" do
       now = DateTime.utc_now()
 
-      for period <- ["second", "minute", "hour", "day", "week", "month", "year", "century", "millennium"] do
+      for period <- ["second", "minute", "hour", "day", "week", "month", "year", "decade", "century", "millennium"] do
         {shift_id, mult} =
           case period do
             "second" -> {:seconds, 1}
@@ -76,6 +76,31 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       end
 
       assert %DateTime{} = Subject.parse_keyword_datetime!("@3-days-and-2-weeks-and-1-month-and-1-year-from-last-week")
+    end
+
+    test "works with amount-based long period words" do
+      now = DateTime.utc_now()
+
+      assert :eq == DateTime.compare(
+        Subject.parse_keyword_datetime!("@1-decade-ago", now),
+        Timex.shift(now, years: -10)
+      )
+
+      assert :eq == DateTime.compare(
+        Subject.parse_keyword_datetime!("@1-century-ago", now),
+        Timex.shift(now, years: -100)
+      )
+
+      assert :eq == DateTime.compare(
+        Subject.parse_keyword_datetime!("@1-millennium-ago", now),
+        Timex.shift(now, years: -1000)
+      )
+    end
+  end
+
+  describe "parse_datetime/1" do
+    test "returns a date for @ keyword inputs" do
+      assert %Date{} = Subject.parse_datetime("@now")
     end
   end
 end

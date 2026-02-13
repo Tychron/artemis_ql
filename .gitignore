@@ -23,3 +23,5 @@ erl_crash.dump
 artemis_ql-*.tar
 
 /log/
+
+.DS_Store

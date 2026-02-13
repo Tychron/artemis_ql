@@ -398,7 +398,7 @@ defmodule ArtemisQL.Tokenizer do
   defp do_tokenize_word(
     <<c::utf8, rest::binary>>,
     acc
-  ) when c in [?@, ?-, ?+, ?_, ?.] or
+  ) when c in [?@, ?-, ?+, ?_, ?., ?/] or
         (c >= ?A and c <= ?Z) or
         (c >= ?a and c <= ?z) or
         (c >= ?0 and c <= ?9) or

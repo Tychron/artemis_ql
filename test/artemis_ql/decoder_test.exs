@@ -154,6 +154,15 @@ defmodule ArtemisQL.DecoderTest do
       assert {:ok, [{:word, "@2-days-from-now", _}], ""} = ArtemisQL.decode("@2-days-from-now")
     end
 
+    test "can decode values that include / characters" do
+      assert {:ok, [
+        {:pair, {
+          {:word, "ip", _},
+          {:word, "10.0.0.0/8", _}
+        }, _}
+      ], ""} = ArtemisQL.decode("ip:10.0.0.0/8")
+    end
+
     test "can decode comparison operators with words" do
       Enum.each(@operators, fn {op_name, op} ->
         assert {:ok, [{:cmp, {^op_name, {:word, "Value", _}}, _}], ""} = ArtemisQL.decode("#{op}Value")

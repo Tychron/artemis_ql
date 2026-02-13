@@ -193,12 +193,8 @@ defmodule ArtemisQL.Utils do
     {:ok, result}
   end
 
-  def normalize_decimal_string(<<>>, :u, _acc) do
-    :error
-  end
-
   def normalize_decimal_string(<<c::utf8, rest::binary>>, :^, acc) when c in [?+, ?-] do
-    normalize_decimal_string(rest, :u, [c | acc])
+    normalize_decimal_string(rest, :s, [c | acc])
   end
 
   def normalize_decimal_string(<<?_, _rest::binary>>, :u, _acc) do
@@ -213,9 +209,8 @@ defmodule ArtemisQL.Utils do
     # this doesn't really validate the structure of the decimal, like normalize_inetger_string does
     case c do
       c when c in [?., ?+, ?-, ?e, ?E] ->
-        # treat special characters as underscores
         case state do
-          s when s in [:d, :s] ->
+          s when s in [:^, :d, :s] ->
             normalize_decimal_string(rest, :s, [c | acc])
 
           :u ->
@@ -228,6 +223,10 @@ defmodule ArtemisQL.Utils do
       _ ->
         :error
     end
+  end
+
+  def normalize_decimal_string(<<>>, _state, _acc) do
+    :error
   end
 
   @spec parse_integer(String.t()) :: {:ok, integer()} | :error

@@ -287,6 +287,26 @@ defmodule ArtemisQL.Types do
     end
   end
 
+  def handle_type_module_transform(:inet, _params, key, value, search_map) do
+    case recast_token(value, &cast_inet/1, search_map) do
+      {:ok, token} ->
+        {:ok, key, token}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  def handle_type_module_transform(:cidr, _params, key, value, search_map) do
+    case recast_token(value, &cast_cidr/1, search_map) do
+      {:ok, token} ->
+        {:ok, key, token}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
   def handle_type_module_transform(:atom, _params, key, value, search_map) do
     case recast_token(value, &cast_atom/1, search_map) do
       {:ok, token} ->

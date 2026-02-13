@@ -23,6 +23,7 @@ defmodule ArtemisQL.UtilsTest do
       assert {:ok, "1e+2"} == ArtemisQL.Utils.normalize_decimal_string("1e+2")
       assert {:ok, "1.0e+2"} == ArtemisQL.Utils.normalize_decimal_string("1.0e+2")
       assert {:ok, "-1e+2"} == ArtemisQL.Utils.normalize_decimal_string("-1e+2")
+      assert {:ok, "-.5"} == ArtemisQL.Utils.normalize_decimal_string("-.5")
     end
   end
 end

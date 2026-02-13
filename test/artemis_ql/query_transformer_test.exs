@@ -657,3 +657,83 @@ end
     assert %Ecto.Query{} = query
   end
 end
+
+defmodule ArtemisQL.NetworkTypesQueryTransformerTest do
+  use ExUnit.Case, async: true
+
+  defmodule NetworkSchema do
+    use Ecto.Schema
+
+    schema "network_schema" do
+      field :ip, :string
+      field :network, :string
+    end
+  end
+
+  @search_map %ArtemisQL.SearchMap{
+    allowed_keys: %{
+      "ip" => true,
+      "network" => true,
+    },
+    pair_transform: %{
+      ip: {:type, :inet},
+      network: {:type, :cidr},
+    },
+    pair_filter: %{
+      ip: {:type, :inet},
+      network: {:type, :cidr},
+    },
+    resolver: nil
+  }
+
+  test "inet supports eq and mapped fuzz operations" do
+    for query <- ["ip:192.168.1.1", "ip:~192.168.1.1", "ip:!~192.168.1.1"] do
+      {:ok, list, ""} = ArtemisQL.decode(query)
+      result = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+      assert %Ecto.Query{} = result
+    end
+  end
+
+  test "inet supports ordering comparisons" do
+    for query <- ["ip:>192.168.1.1", "ip:>=192.168.1.1", "ip:<192.168.1.1", "ip:<=192.168.1.1"] do
+      {:ok, list, ""} = ArtemisQL.decode(query)
+      result = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+      assert %Ecto.Query{} = result
+    end
+  end
+
+  test "cidr values are accepted" do
+    {:ok, list, ""} = ArtemisQL.decode("network:10.0.0.0/8")
+    result = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+    assert %Ecto.Query{} = result
+  end
+
+  test "inet grouped values are accepted" do
+    {:ok, list, ""} = ArtemisQL.decode("ip:(192.168.1.1,10.0.0.1)")
+    result = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+    assert %Ecto.Query{} = result
+  end
+
+  test "inet grouped comparator values are accepted" do
+    {:ok, list, ""} = ArtemisQL.decode("ip:(>1.1.1.1,=2.2.2.2,<3.3.3.3)")
+    result = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+    assert %Ecto.Query{} = result
+  end
+
+  test "cidr grouped values are accepted" do
+    {:ok, list, ""} = ArtemisQL.decode("network:(10.0.0.0/8,192.168.0.0/16)")
+    result = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+    assert %Ecto.Query{} = result
+  end
+
+  test "invalid inet/cidr values abort with cast errors" do
+    for {query, reason} <- [
+      {"ip:999.0.0.1", :cast_error},
+      {"network:10.0.0.1", :cast_error},
+      {"network:10.0.0.0/40", :cast_error},
+    ] do
+      {:ok, list, ""} = ArtemisQL.decode(query)
+      assert {:abort, ^reason} = ArtemisQL.to_ecto_query(NetworkSchema, list, @search_map)
+    end
+  end
+end

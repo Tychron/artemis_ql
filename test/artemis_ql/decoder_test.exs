@@ -36,6 +36,40 @@ defmodule ArtemisQL.DecoderTest do
       } = ArtemisQL.decode("A,B,C")
     end
 
+    test "returns an error for invalid escaped characters in quotes" do
+      assert {
+        :error,
+        {
+          :tokenizer_error,
+          {:invalid_escape_sequence, ?x, %{line_no: 1, col_no: 3}}
+        }
+      } = ArtemisQL.decode("\"a\\x\"")
+    end
+
+    test "returns an error for invalid 4-char unicode escapes in quotes" do
+      assert {
+        :error,
+        {
+          :tokenizer_error,
+          {:invalid_unicode_sequence, {:unicode, "12ZZ", _}, _}
+        }
+      } = ArtemisQL.decode("\"\\u12ZZ\"")
+    end
+
+    test "returns an error for raw control characters in quotes" do
+      assert {
+        :error,
+        {
+          :tokenizer_error,
+          {:invalid_control_character, 1, %{line_no: 1, col_no: 2}}
+        }
+      } = ArtemisQL.decode(<<34, 1, 34>>)
+    end
+
+    test "escaped NUL in quotes is allowed" do
+      assert {:ok, [{:quote, <<0>>, _}], ""} = ArtemisQL.decode("\"\\0\"")
+    end
+
     test "can decode pin form" do
       assert {:ok, [
         {:pin, {:word, "Word", _}, _}
@@ -151,6 +185,19 @@ defmodule ArtemisQL.DecoderTest do
           _}
         ], ""} = ArtemisQL.decode("#{op}(A,B)")
       end)
+    end
+
+    test "can decode list values that contain comparison terms" do
+      assert {:ok, [
+        {:pair, {
+          {:word, "int", _},
+          {:list, [
+            {:cmp, {:gt, {:word, "1", _}}, _},
+            {:cmp, {:eq, {:word, "2", _}}, _},
+            {:cmp, {:lt, {:word, "3", _}}, _}
+          ], _}
+        }, _}
+      ], ""} = ArtemisQL.decode("int:>1,=2,<3")
     end
 
     test "can decode groups" do

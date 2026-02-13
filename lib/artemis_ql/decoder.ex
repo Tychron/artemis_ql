@@ -137,6 +137,17 @@ defmodule ArtemisQL.Decoder do
 
   defp decode_token([r_cmp_op_token(value: op, meta: meta) | tokens]) do
     case decode_value(tokens) do
+      {:ok, value, [r_token(kind: :continuation_op, meta: lmeta) | tokens]} ->
+        value = r_cmp_token(pair: {op, value}, meta: meta)
+
+        case decode_list(tokens) do
+          {:ok, list, tokens} ->
+            {:ok, r_list_token(items: [value | list], meta: lmeta), tokens}
+
+          {:error, _reason, _tokens} = err ->
+            err
+        end
+
       {:ok, value, tokens} ->
         {:ok, r_cmp_token(pair: {op, value}, meta: meta), tokens}
 
@@ -198,7 +209,7 @@ defmodule ArtemisQL.Decoder do
   end
 
   defp decode_list(tokens, acc \\ []) when is_list(tokens) do
-    case decode_value(tokens) do
+    case decode_list_item(tokens) do
       {:error, _reason, _tokens} = err ->
         # return the error as is
         err
@@ -212,9 +223,23 @@ defmodule ArtemisQL.Decoder do
       {:ok, token, [r_space_token() | _rest] = tokens} ->
         {:ok, Enum.reverse([token | acc]), tokens}
 
-      {:ok, token, []} ->
-        {:ok, Enum.reverse([token | acc]), []}
+      {:ok, token, tokens} ->
+        {:ok, Enum.reverse([token | acc]), tokens}
     end
+  end
+
+  defp decode_list_item([r_cmp_op_token(value: op, meta: meta) | tokens]) do
+    case decode_value(tokens) do
+      {:ok, value, tokens} ->
+        {:ok, r_cmp_token(pair: {op, value}, meta: meta), tokens}
+
+      {:error, _reason, _tokens} = err ->
+        err
+    end
+  end
+
+  defp decode_list_item(tokens) do
+    decode_value(tokens)
   end
 
   defp decode_value(tokens, acc \\ [])

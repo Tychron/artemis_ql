@@ -206,6 +206,20 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
     type,
     query,
     key,
+    r_cmp_token(pair: {operator, r_list_token(items: items)})
+  ) when type in @scalars do
+    apply_type_filter(
+      type,
+      query,
+      key,
+      r_cmp_token(pair: {operator, r_group_token(items: [r_list_token(items: items)])})
+    )
+  end
+
+  def apply_type_filter(
+    type,
+    query,
+    key,
     r_cmp_token(pair: {operator, r_group_token(items: [r_list_token(items: items)])})
   ) when type in @scalars do
     # OP(a,b,c)

@@ -37,6 +37,73 @@ defmodule ArtemisQL.Ecto.Util do
 
             r_partial_token(items: items), head ->
               dynamic(^head or fragment("? ILIKE ?", ^field_fragment, ^partial_to_like_pattern(items)))
+
+            r_cmp_token(pair: {operator, r_null_token()}), head ->
+              case operator do
+                :gte ->
+                  dynamic(^head or is_nil(^field_fragment) or not is_nil(^field_fragment))
+
+                :lte ->
+                  dynamic(^head or is_nil(^field_fragment) or not is_nil(^field_fragment))
+
+                :gt ->
+                  dynamic(^head or not is_nil(^field_fragment))
+
+                :lt ->
+                  dynamic(^head or not is_nil(^field_fragment))
+
+                :neq ->
+                  dynamic(^head or not is_nil(^field_fragment))
+
+                :eq ->
+                  dynamic(^head or is_nil(^field_fragment))
+
+                :fuzz ->
+                  dynamic(^head or is_nil(^field_fragment))
+
+                :nfuzz ->
+                  dynamic(^head or not is_nil(^field_fragment))
+              end
+
+            r_cmp_token(pair: {operator, r_value_token(value: value)}), head ->
+              case operator do
+                :gte ->
+                  dynamic(^head or ^field_fragment >= ^value)
+
+                :lte ->
+                  dynamic(^head or ^field_fragment <= ^value)
+
+                :gt ->
+                  dynamic(^head or ^field_fragment > ^value)
+
+                :lt ->
+                  dynamic(^head or ^field_fragment < ^value)
+
+                :neq ->
+                  dynamic(^head or ^field_fragment != ^value)
+
+                :eq ->
+                  dynamic(^head or ^field_fragment == ^value)
+
+                :fuzz ->
+                  pattern = "%#{escape_string_for_like(to_string(value))}%"
+                  dynamic(^head or fragment("?::text ILIKE ?", ^field_fragment, ^pattern))
+
+                :nfuzz ->
+                  pattern = "%#{escape_string_for_like(to_string(value))}%"
+                  dynamic(^head or fragment("?::text NOT ILIKE ?", ^field_fragment, ^pattern))
+              end
+
+            r_cmp_token(pair: {operator, r_partial_token(items: partial_items)}), head ->
+              pattern = partial_to_like_pattern(partial_items)
+
+              case operator do
+                op when op in [:lt, :gt, :neq, :nfuzz] ->
+                  dynamic(^head or fragment("?::text NOT ILIKE ?", ^field_fragment, ^pattern))
+
+                op when op in [:gte, :lte, :eq, :fuzz] ->
+                  dynamic(^head or fragment("?::text ILIKE ?", ^field_fragment, ^pattern))
+              end
           end)
 
         query
@@ -103,6 +170,9 @@ defmodule ArtemisQL.Ecto.Util do
         method
 
       r_partial_token(items: _items), _method ->
+        :or
+
+      r_cmp_token(), _method ->
         :or
     end)
   end

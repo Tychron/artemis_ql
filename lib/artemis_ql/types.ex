@@ -68,14 +68,77 @@ defmodule ArtemisQL.Types do
     end
   end
 
-  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) do
+  def handle_pair_transform(
+    type,
+    key,
+    r_group_token(items: [r_group_token() = child]),
+    search_map
+  ) do
+    handle_pair_transform(type, key, child, search_map)
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: []), _search_map) when type != nil do
+    {:abort, {:empty_group, key}}
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: [r_wildcard_token()]), _search_map) when type != nil do
+    {:ok, key, r_wildcard_token()}
+  end
+
+  def handle_pair_transform(
+    type,
+    key,
+    r_group_token(items: [r_any_char_token() = token], meta: meta),
+    _search_map
+  ) when type != nil do
+    {:ok, key, r_partial_token(items: [token], meta: meta)}
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) when type != nil do
     case handle_pair_transform(type, key, item, search_map) do
-      {:ok, key, r_token() = value_token} ->
-        {:ok, key, r_group_token(items: [value_token])}
+      {:ok, key, r_token(kind: kind) = value_token} when kind in [:value, :list, :partial] ->
+        {:ok, key, value_token}
+
+      {:ok, _key, _token} ->
+        reason =
+          %UnsupportedSearchTermForField{
+            meta: %{
+              type: type,
+            },
+            key: key,
+            token: item,
+            search_map: search_map
+          }
+
+        {:abort, reason}
 
       {:abort, reason} ->
         {:abort, reason}
     end
+  end
+
+  def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) do
+    case handle_pair_transform(type, key, item, search_map) do
+      {:ok, key, r_token() = value_token} ->
+        {:ok, key, value_token}
+
+      {:abort, reason} ->
+        {:abort, reason}
+    end
+  end
+
+  def handle_pair_transform(type, key, r_group_token() = token, search_map) when type != nil do
+    reason =
+      %UnsupportedSearchTermForField{
+        meta: %{
+          type: type,
+        },
+        key: key,
+        token: token,
+        search_map: search_map
+      }
+
+    {:abort, reason}
   end
 
   def handle_pair_transform(type, key, r_list_token(items: items), search_map) do
@@ -83,7 +146,18 @@ defmodule ArtemisQL.Types do
       Enum.reduce(items, {key, []}, fn value, {key, acc} ->
         case handle_pair_transform(type, key, value, search_map) do
           {:ok, key, r_token() = value} ->
-            {key, [value | acc]}
+            case value do
+              r_list_token(items: nested_items) ->
+                acc =
+                  Enum.reduce(nested_items, acc, fn nested_item, acc ->
+                    [nested_item | acc]
+                  end)
+
+                {key, acc}
+
+              _ ->
+                {key, [value | acc]}
+            end
 
           {:abort, reason} ->
             throw {:abort, reason}
@@ -105,6 +179,10 @@ defmodule ArtemisQL.Types do
 
   def handle_pair_transform(nil, key, r_token() = value, _search_map) do
     {:ok, key, value}
+  end
+
+  def handle_pair_transform(type, key, nil, _search_map) when type != nil do
+    {:abort, {:empty_value, key}}
   end
 
   def handle_pair_transform({:type, module}, key, value, search_map) do
@@ -180,7 +258,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:integer, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:integer, &1), search_map) do
+    case recast_token(value, &cast_integer/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -190,7 +268,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:float, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:float, &1), search_map) do
+    case recast_token(value, &cast_float/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -200,7 +278,7 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_type_module_transform(:decimal, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:decimal, &1), search_map) do
+    case recast_token(value, &cast_decimal/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -518,6 +596,128 @@ defmodule ArtemisQL.Types do
         :error
     end
   end
+
+  @spec cast_integer(String.t()) :: {:ok, integer()} | :error
+  def cast_integer(value) when is_integer(value) do
+    {:ok, value}
+  end
+
+  def cast_integer(value) when is_binary(value) do
+    {sign, value} =
+      case value do
+        <<"-", rest::binary>> -> {-1, rest}
+        <<"+", rest::binary>> -> {1, rest}
+        _ -> {1, value}
+      end
+
+    with {:ok, value} <- parse_integer_with_optional_base(value) do
+      {:ok, value * sign}
+    else
+      :error ->
+        :error
+    end
+  end
+
+  def cast_float(value) when is_float(value), do: {:ok, value}
+  def cast_float(value) when is_integer(value), do: {:ok, value * 1.0}
+
+  def cast_float(value) when is_binary(value) do
+    with {:ok, value} <- normalize_decimal_like_numeric_literal(value) do
+      Ecto.Type.cast(:float, value)
+    else
+      :error ->
+        :error
+    end
+  end
+
+  def cast_decimal(%Decimal{} = value), do: {:ok, value}
+
+  def cast_decimal(value) when is_integer(value) or is_float(value) do
+    Ecto.Type.cast(:decimal, value)
+  end
+
+  def cast_decimal(value) when is_binary(value) do
+    with {:ok, value} <- normalize_decimal_like_numeric_literal(value) do
+      Ecto.Type.cast(:decimal, value)
+    else
+      :error ->
+        :error
+    end
+  end
+
+  defp parse_integer_with_optional_base(<<"0b", value::binary>>), do: parse_integer_by_base(value, 2)
+  defp parse_integer_with_optional_base(<<"0B", value::binary>>), do: parse_integer_by_base(value, 2)
+  defp parse_integer_with_optional_base(<<"0o", value::binary>>), do: parse_integer_by_base(value, 8)
+  defp parse_integer_with_optional_base(<<"0O", value::binary>>), do: parse_integer_by_base(value, 8)
+  defp parse_integer_with_optional_base(<<"0x", value::binary>>), do: parse_integer_by_base(value, 16)
+  defp parse_integer_with_optional_base(<<"0X", value::binary>>), do: parse_integer_by_base(value, 16)
+  defp parse_integer_with_optional_base(value), do: parse_integer_by_base(value, 10)
+
+  defp parse_integer_by_base("", _base), do: :error
+
+  defp parse_integer_by_base(value, base) do
+    with {:ok, value} <- normalize_integer_literal(value, base) do
+      case Integer.parse(value, base) do
+        {value, ""} ->
+          {:ok, value}
+
+        _ ->
+          :error
+      end
+    else
+      :error ->
+        :error
+    end
+  end
+
+  defp normalize_integer_literal(value, base) when is_binary(value) do
+    validate_and_normalize_numeric_literal(value, fn c ->
+      c in integer_digit_chars_for_base(base)
+    end)
+  end
+
+  defp normalize_decimal_like_numeric_literal(value) when is_binary(value) do
+    validate_and_normalize_numeric_literal(value, fn c ->
+      c >= ?0 and c <= ?9
+    end)
+  end
+
+  defp validate_and_normalize_numeric_literal(value, digit_fun) when is_binary(value) do
+    chars = :binary.bin_to_list(value)
+
+    case chars do
+      [] ->
+        :error
+
+      _ ->
+        valid? =
+          Enum.with_index(chars)
+          |> Enum.all?(fn
+            {?_, index} ->
+              index > 0 and
+                index < length(chars) - 1 and
+                digit_fun.(Enum.at(chars, index - 1)) and
+                digit_fun.(Enum.at(chars, index + 1))
+
+            {_c, _index} ->
+              true
+          end)
+
+        case valid? do
+          true ->
+            {:ok, String.replace(value, "_", "")}
+
+          false ->
+            :error
+        end
+    end
+  end
+
+  defp integer_digit_chars_for_base(2), do: ~c"01"
+  defp integer_digit_chars_for_base(8), do: ~c"01234567"
+  defp integer_digit_chars_for_base(10), do: ~c"0123456789"
+  defp integer_digit_chars_for_base(16), do: ~c"0123456789abcdefABCDEF"
+  defp integer_digit_chars_for_base(_base), do: ~c"0123456789"
 
   @spec cast_atom(String.t()) :: {:ok, atom()}
   def cast_atom(str) do

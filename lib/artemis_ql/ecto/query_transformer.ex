@@ -26,6 +26,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   @type abort_reason :: KeyNotFound.t()
                       | InvalidEnumValue.t()
                       | UnsupportedSearchTermForField.t()
+                      | term()
 
   @type abort_result :: {:abort, abort_reason()}
 
@@ -70,7 +71,7 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
         line
 
       {:cont, %Context{} = context} ->
-        case Enum.reduce_while(b, context, &handle_item(&1, context)) do
+        case Enum.reduce_while(b, context, &handle_item/2) do
           {:abort, reason} ->
             {:halt, {:abort, reason}}
 
@@ -78,6 +79,20 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
             {:cont, context}
         end
     end
+  end
+
+  defp handle_item(
+    r_or_token(),
+    %Context{}
+  ) do
+    {:halt, {:abort, :unsupported_logical_or}}
+  end
+
+  defp handle_item(
+    {:not, _item, _meta},
+    %Context{}
+  ) do
+    {:halt, {:abort, :unsupported_logical_not}}
   end
 
   defp handle_item(
@@ -150,10 +165,16 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
 
               {:ok, %Context{} = context} ->
                 case apply_pair_filter(key, value, context) do
+                  %Context{query: {:abort, reason}} ->
+                    {:halt, {:abort, reason}}
+
                   %Context{} = context ->
                     {:cont, context}
                 end
             end
+
+          {:error, reason} ->
+            {:halt, {:abort, reason}}
 
           {:abort, reason} ->
             {:halt, {:abort, reason}}

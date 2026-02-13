@@ -218,6 +218,70 @@ for type <- [:struct, :module] do
       assert %Ecto.Query{} = query
     end
 
+    test "can handle AND chains without crashing" do
+      assert {:ok, list, ""} = ArtemisQL.decode("name:Aname AND int:23")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "returns abort for OR expressions" do
+      assert {:ok, list, ""} = ArtemisQL.decode("name:Aname OR int:23")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, :unsupported_logical_or} = query
+    end
+
+    test "returns abort for NOT expressions" do
+      assert {:ok, list, ""} = ArtemisQL.decode("NOT name:Aname")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, :unsupported_logical_not} = query
+    end
+
+    test "returns abort for type cast failures" do
+      assert {:ok, list, ""} = ArtemisQL.decode("int:abc")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, :cast_error} = query
+    end
+
+    test "expands @now for utc_datetime into full-day range filters" do
+      assert {:ok, list, ""} = ArtemisQL.decode("inserted_at:@now")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+
+      datetimes =
+        query.wheres
+        |> Enum.flat_map(& &1.params)
+        |> Enum.map(fn {value, _type} -> value end)
+        |> Enum.filter(&match?(%DateTime{}, &1))
+
+      assert 2 == length(datetimes)
+
+      [a, b] = Enum.sort_by(datetimes, &DateTime.to_unix(&1, :microsecond))
+
+      assert {0, 0, 0} == {a.hour, a.minute, a.second}
+      assert {23, 59, 59} == {b.hour, b.minute, b.second}
+      assert DateTime.to_date(a) == DateTime.to_date(b)
+    end
+
     test "can handle wildcards for strings" do
       {:ok, list, ""} = ArtemisQL.decode("name:Name*")
 
@@ -256,6 +320,175 @@ for type <- [:struct, :module] do
         |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
 
       assert %Ecto.Query{} = query
+    end
+
+    test "grouped integer single value works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(1)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "deeply nested grouped integer single value works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:((((1))))")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "grouped integer list works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(1,2)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "deeply nested grouped integer list works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:((((1,2))))")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "comparison with grouped integer list works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:=(1,2)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "comparison lists for integers work" do
+      {:ok, list, ""} = ArtemisQL.decode("int:>1,=2,<3")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "grouped comparison lists for integers work" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(>1,=2,<3)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "comparison with deeply nested grouped integer list works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:=((((1,2))))")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "mixed-arity nested grouped integer is flattened and works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(1,(2,(3,4)))")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "comparison mixed-arity nested grouped integer is flattened and works" do
+      {:ok, list, ""} = ArtemisQL.decode("int:=(1,(2,(3,4)))")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+    end
+
+    test "empty grouped integer aborts" do
+      {:ok, list, ""} = ArtemisQL.decode("int:()")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, {:empty_group, :int}} = query
+    end
+
+    test "wildcard-only grouped integer is ignored" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(*)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert QuerySchema == query
+    end
+
+    test "any-char-only grouped integer becomes single-character match" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(?)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+      assert 1 == length(query.wheres)
+
+      patterns =
+        query.wheres
+        |> Enum.flat_map(& &1.params)
+        |> Enum.map(fn {value, _type} -> value end)
+        |> Enum.filter(&is_binary/1)
+
+      assert ["_"] == patterns
+    end
+
+    test "space-separated grouped integers abort" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(1 2)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, %ArtemisQL.Errors.UnsupportedSearchTermForField{key: :int}} = query
+    end
+
+    test "range-only grouped integer aborts" do
+      {:ok, list, ""} = ArtemisQL.decode("int:(1..2)")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, %ArtemisQL.Errors.UnsupportedSearchTermForField{key: :int}} = query
+    end
+
+    test "empty value after key aborts" do
+      {:ok, list, ""} = ArtemisQL.decode("int: ")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert {:abort, {:empty_value, :int}} = query
     end
 
     test "time ranges are handled" do

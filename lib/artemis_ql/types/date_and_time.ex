@@ -200,7 +200,10 @@ defmodule ArtemisQL.Types.DateAndTime do
       days: 0,
       weeks: 0,
       months: 0,
-      years: 0
+      years: 0,
+      decades: 0,
+      centuries: 0,
+      millennia: 0
     }
 
     {duration, anchor} =
@@ -214,23 +217,35 @@ defmodule ArtemisQL.Types.DateAndTime do
         raise %ValueTransformError{types: [:functional_time]}
 
       {:from, %DateTime{} = datetime} ->
+        years =
+          duration[:years] +
+          duration[:decades] * 10 +
+          duration[:centuries] * 100 +
+          duration[:millennia] * 1000
+
         Timex.shift(datetime, [
           seconds: duration[:seconds],
           minutes: duration[:minutes],
           hours: duration[:hours],
           days: duration[:days] + duration[:weeks] * 7,
           months: duration[:months],
-          years: duration[:years],
+          years: years,
         ])
 
       {:to, %DateTime{} = datetime} ->
+        years =
+          duration[:years] +
+          duration[:decades] * 10 +
+          duration[:centuries] * 100 +
+          duration[:millennia] * 1000
+
         Timex.shift(datetime, [
           seconds: -duration[:seconds],
           minutes: -duration[:minutes],
           hours: -duration[:hours],
           days: -(duration[:days] + duration[:weeks] * 7),
           months: -duration[:months],
-          years: -duration[:years],
+          years: -years,
         ])
 
       %DateTime{} = datetime ->

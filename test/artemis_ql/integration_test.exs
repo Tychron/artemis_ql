@@ -50,12 +50,12 @@ defmodule ArtemisQL.IntegrationTest do
         execute_query("id:#{model1.id},#{model2.id}")
     end
 
-    test "can query implicit null" do
+    test "implicit empty value is rejected" do
       _model1 = insert_test_mode(name: "name1")
       _model2 = insert_test_mode(name: "name2")
 
-      assert [] =
-        execute_query("id: ")
+      assert {:abort, {:empty_value, :id}} =
+        ArtemisQL.to_ecto_query(TestModel, "id: ", TestModel.search_spec(), [])
     end
   end
 
@@ -74,11 +74,97 @@ defmodule ArtemisQL.IntegrationTest do
         execute_query("int:#{model1.int},#{model2.int}")
     end
 
-    test "can query implicit null" do
+    test "parses random integers in binary, octal and hex formats" do
+      max_u32 = 4_294_967_296
+
+      for _ <- 1..64 do
+        value = ArtemisQL.Random.random_integer_between(0, max_u32)
+
+        for formatted <- [
+              "0b#{Integer.to_string(value, 2)}",
+              "0o#{Integer.to_string(value, 8)}",
+              "0x#{Integer.to_string(value, 16)}"
+            ] do
+          query =
+            ArtemisQL.to_ecto_query(
+              TestModel,
+              "int:#{formatted}",
+              TestModel.search_spec(),
+              []
+            )
+
+          assert %Ecto.Query{} = query
+
+          params =
+            query.wheres
+            |> Enum.flat_map(& &1.params)
+            |> Enum.map(fn {value, _type} -> value end)
+
+          assert [^value] = params
+        end
+      end
+    end
+
+    test "can query integer values with underscores" do
+      _model1 = insert_test_mode(name: "name1", int: 1_234_567)
+
+      assert [%{name: "name1"}] = execute_query("int:1_234_567")
+    end
+
+    test "rejects invalid underscore placement for integers" do
+      for query <- ["int:_1234", "int:1234_", "int:0x_FF", "int:0b10_"] do
+        assert {:abort, :cast_error} =
+          ArtemisQL.to_ecto_query(TestModel, query, TestModel.search_spec(), [])
+      end
+    end
+
+    test "implicit empty value is rejected" do
       _model1 = insert_test_mode(name: "name1", int: nil)
 
-      assert [%{name: "name1"}] =
-        execute_query("int: ")
+      assert {:abort, {:empty_value, :int}} =
+        ArtemisQL.to_ecto_query(TestModel, "int: ", TestModel.search_spec(), [])
+    end
+  end
+
+  describe "float queries" do
+    test "can query exponent values with explicit plus signs" do
+      _model1 = insert_test_mode(name: "name1", flt: 100.0)
+      _model2 = insert_test_mode(name: "name2", flt: -100.0)
+
+      assert [%{name: "name1"}] = execute_query("flt:1e+2")
+      assert [%{name: "name2"}] = execute_query("flt:-1e+2")
+    end
+
+    test "can query float values with underscores" do
+      _model1 = insert_test_mode(name: "name1", flt: 1_234.56)
+      _model2 = insert_test_mode(name: "name2", flt: 125.0)
+
+      assert [%{name: "name1"}] = execute_query("flt:1_234.5_6")
+      assert [%{name: "name2"}] = execute_query("flt:1_2.5e+1")
+    end
+
+    test "rejects invalid underscore placement for floats" do
+      for query <- ["flt:_1234.5", "flt:1234.5_", "flt:1._5", "flt:1_.5"] do
+        assert {:abort, :cast_error} =
+          ArtemisQL.to_ecto_query(TestModel, query, TestModel.search_spec(), [])
+      end
+    end
+  end
+
+  describe "decimal queries" do
+    test "can query decimal values with underscores" do
+      _model1 = insert_test_mode(name: "name1", dec: Decimal.new("1234.56"))
+      _model2 = insert_test_mode(name: "name2", dec: Decimal.new("125"))
+
+      assert [%{name: "name1"}] = execute_query("dec:1_234.5_6")
+      assert [%{name: "name2"}] = execute_query("dec:1_2.5e+1")
+    end
+
+    test "rejects invalid underscore placement for decimals" do
+      for query <- ["dec:_1234.5", "dec:1234.5_", "dec:1._5", "dec:1_.5"] do
+        assert {:abort, :cast_error} =
+          ArtemisQL.to_ecto_query(TestModel, query, TestModel.search_spec(), [])
+      end
     end
   end
 

@@ -2,31 +2,31 @@ defmodule ArtemisQL.Types.DateAndTime do
   alias ArtemisQL.Types.ValueTransformError
 
   @type partial_date ::
-    {:partial_date, {year::integer(), month::integer()}}
-    | {:partial_date, {year::integer()}}
+          {:partial_date, {year :: integer(), month :: integer()}}
+          | {:partial_date, {year :: integer()}}
 
   @type partial_time ::
-    {:partial_time, {hour::integer, minute::integer}}
-    | {:partial_time, {hour::integer}}
+          {:partial_time, {hour :: integer, minute :: integer}}
+          | {:partial_time, {hour :: integer}}
 
   @type partial_datetime ::
-    {:partial_datetime, Date.t(), partial_time()}
+          {:partial_datetime, Date.t(), partial_time()}
 
   @type partial_naive_datetime ::
-    {:partial_naive_datetime, Date.t(), partial_time()}
+          {:partial_naive_datetime, Date.t(), partial_time()}
 
   @type any_partial_datetime :: partial_datetime() | partial_date() | partial_time()
 
   @type any_partial_naive_datetime :: partial_naive_datetime() | partial_date() | partial_time()
 
-  @spec parse_date(str::String.t(), DateTime.t()) :: Date.t()
+  @spec parse_date(str :: String.t(), DateTime.t()) :: Date.t()
   def parse_date(str) do
     parse_date(str, DateTime.utc_now())
   end
 
   def parse_date(str, now)
 
-  def parse_date(<<"@",_::binary>> = str, now) do
+  def parse_date(<<"@", _::binary>> = str, now) do
     str
     |> parse_keyword_datetime!(now)
     |> DateTime.to_date()
@@ -61,7 +61,7 @@ defmodule ArtemisQL.Types.DateAndTime do
 
   def parse_time(str, now)
 
-  def parse_time(<<"@",_::binary>> = str, now) do
+  def parse_time(<<"@", _::binary>> = str, now) do
     str
     |> parse_keyword_datetime!(now)
     |> DateTime.to_time()
@@ -90,14 +90,14 @@ defmodule ArtemisQL.Types.DateAndTime do
   end
 
   @spec parse_naive_datetime(String.t(), DateTime.t()) ::
-    NaiveDateTime.t() | Date.t() | any_partial_naive_datetime()
+          NaiveDateTime.t() | Date.t() | any_partial_naive_datetime()
   def parse_naive_datetime(str) do
     parse_naive_datetime(str, DateTime.utc_now())
   end
 
   def parse_naive_datetime(str, now)
 
-  def parse_naive_datetime(<<"@",_::binary>> = str, now) do
+  def parse_naive_datetime(<<"@", _::binary>> = str, now) do
     str
     |> parse_keyword_datetime!(now)
     |> DateTime.to_naive()
@@ -111,9 +111,12 @@ defmodule ArtemisQL.Types.DateAndTime do
       {:error, _} ->
         case str do
           <<
-            year::binary-size(4), "-",
-            month::binary-size(2), "-",
-            day::binary-size(2), "T",
+            year::binary-size(4),
+            "-",
+            month::binary-size(2),
+            "-",
+            day::binary-size(2),
+            "T",
             rest::binary
           >> ->
             {:partial_naive_datetime, parse_date("#{year}-#{month}-#{day}"), parse_time(rest)}
@@ -130,19 +133,20 @@ defmodule ArtemisQL.Types.DateAndTime do
             end
         end
     end
-  rescue ex in ValueTransformError ->
-    reraise %ValueTransformError{types: [:naive_datetime | ex.types]}, __STACKTRACE__
+  rescue
+    ex in ValueTransformError ->
+      reraise %ValueTransformError{types: [:naive_datetime | ex.types]}, __STACKTRACE__
   end
 
   @spec parse_datetime(String.t(), DateTime.t()) ::
-    DateTime.t() | Date.t() | any_partial_datetime()
+          DateTime.t() | Date.t() | any_partial_datetime()
   def parse_datetime(str) do
     parse_datetime(str, DateTime.utc_now())
   end
 
   def parse_datetime(str, now)
 
-  def parse_datetime(<<"@",_::binary>> = str, now) do
+  def parse_datetime(<<"@", _::binary>> = str, now) do
     str
     |> parse_keyword_datetime!(now)
     |> DateTime.to_date()
@@ -161,9 +165,12 @@ defmodule ArtemisQL.Types.DateAndTime do
           {:error, _} ->
             case str do
               <<
-                year::binary-size(4), "-",
-                month::binary-size(2), "-",
-                day::binary-size(2), "T",
+                year::binary-size(4),
+                "-",
+                month::binary-size(2),
+                "-",
+                day::binary-size(2),
+                "T",
                 rest::binary
               >> ->
                 {:partial_datetime, parse_date("#{year}-#{month}-#{day}"), parse_time(rest)}
@@ -181,8 +188,9 @@ defmodule ArtemisQL.Types.DateAndTime do
             end
         end
     end
-  rescue ex in ValueTransformError ->
-    reraise %ValueTransformError{types: [:datetime | ex.types]}, __STACKTRACE__
+  rescue
+    ex in ValueTransformError ->
+      reraise %ValueTransformError{types: [:datetime | ex.types]}, __STACKTRACE__
   end
 
   @doc """
@@ -193,175 +201,84 @@ defmodule ArtemisQL.Types.DateAndTime do
   end
 
   def parse_keyword_datetime!(<<"@", rest::binary>>, time_now) do
-    duration = %{
-      seconds: 0,
-      minutes: 0,
-      hours: 0,
-      days: 0,
-      weeks: 0,
-      months: 0,
-      years: 0,
-      decades: 0,
-      centuries: 0,
-      millennia: 0
-    }
+    case ArtemisQL.Types.FunctionalTimeAliasParser.parse(rest) do
+      {:ok, spec} ->
+        apply_functional_time_spec(spec, time_now)
 
-    {duration, anchor} =
-      rest
-      |> String.downcase()
-      |> String.split("-")
-      |> do_parse_keyword_datetime({duration, nil}, time_now)
-
-    case anchor do
-      nil ->
+      :error ->
         raise %ValueTransformError{types: [:functional_time]}
-
-      {:from, %DateTime{} = datetime} ->
-        years =
-          duration[:years] +
-          duration[:decades] * 10 +
-          duration[:centuries] * 100 +
-          duration[:millennia] * 1000
-
-        Timex.shift(datetime, [
-          seconds: duration[:seconds],
-          minutes: duration[:minutes],
-          hours: duration[:hours],
-          days: duration[:days] + duration[:weeks] * 7,
-          months: duration[:months],
-          years: years,
-        ])
-
-      {:to, %DateTime{} = datetime} ->
-        years =
-          duration[:years] +
-          duration[:decades] * 10 +
-          duration[:centuries] * 100 +
-          duration[:millennia] * 1000
-
-        Timex.shift(datetime, [
-          seconds: -duration[:seconds],
-          minutes: -duration[:minutes],
-          hours: -duration[:hours],
-          days: -(duration[:days] + duration[:weeks] * 7),
-          months: -duration[:months],
-          years: -years,
-        ])
-
-      %DateTime{} = datetime ->
-        datetime
     end
   end
 
-  defp do_parse_keyword_datetime([], {_duration, _anchor} = pair, _now) do
-    pair
-  end
+  defp apply_functional_time_spec(
+         %{duration: duration, direction: direction, anchor: anchor_ref},
+         now
+       ) do
+    anchor = resolve_anchor(anchor_ref, now)
 
-  defp do_parse_keyword_datetime(["from" | rest], {duration, _anchor}, now) do
-    do_parse_keyword_datetime(rest, {duration, {:from, nil}}, now)
-  end
+    case direction do
+      :point ->
+        anchor
 
-  defp do_parse_keyword_datetime(["to" | rest], {duration, _anchor}, now) do
-    do_parse_keyword_datetime(rest, {duration, {:to, nil}}, now)
-  end
+      :from ->
+        Timex.shift(anchor, build_timex_shift(duration, 1))
 
-  defp do_parse_keyword_datetime(["till" | rest], {duration, _anchor}, now) do
-    do_parse_keyword_datetime(rest, {duration, {:to, nil}}, now)
-  end
-
-  defp do_parse_keyword_datetime(["ago"], {duration, _anchor}, now) do
-    do_parse_keyword_datetime([], {duration, {:to, now}}, now)
-  end
-
-  defp do_parse_keyword_datetime(["later"], {duration, _anchor}, now) do
-    do_parse_keyword_datetime([], {duration, {:from, now}}, now)
-  end
-
-  defp do_parse_keyword_datetime([word, anchor_name], {duration, anchor}, now) when word in ["next"] do
-    {key, offset} = anchor_to_key_and_offset(anchor_name)
-    point = Timex.shift(now, [{key, offset}])
-
-    {duration, replace_anchor(anchor, point)}
-  end
-
-  defp do_parse_keyword_datetime([word, anchor_name], {duration, anchor}, now) when word in ["last", "prev", "previous"] do
-    {key, offset} = anchor_to_key_and_offset(anchor_name)
-    point = Timex.shift(now, [{key, offset * -1}])
-
-    {duration, replace_anchor(anchor, point)}
-  end
-
-  defp do_parse_keyword_datetime([anchor_name], {duration, anchor}, now) do
-    point =
-      case anchor_name do
-        "today" ->
-          Timex.beginning_of_day(now)
-
-        name when name in ["now"] ->
-          now
-
-        "yesterday" ->
-          Timex.shift(now, days: -1)
-
-        "tomorrow" ->
-          Timex.shift(now, days: 1)
-      end
-
-    {duration, replace_anchor(anchor, point)}
-  end
-
-  defp do_parse_keyword_datetime(["and" | rest], acc, now) do
-    do_parse_keyword_datetime(rest, acc, now)
-  end
-
-  rows = [
-    {:second, :seconds},
-    {:minute, :minutes},
-    {:hour, :hours},
-    {:day, :days},
-    {:week, :weeks},
-    {:month, :months},
-    {:year, :years},
-    {:decade, :decades},
-    {:century, :centuries},
-    {:millennium, :millennia},
-  ]
-
-  for {singular, unit} <- rows do
-    defp do_parse_keyword_datetime([amount, unquote(to_string(unit)) | rest], {duration, anchor}, now) do
-      duration = %{duration | unquote(unit) => duration.unquote(unit) + String.to_integer(amount, 10)}
-      do_parse_keyword_datetime(rest, {duration, anchor}, now)
-    end
-
-    defp do_parse_keyword_datetime([amount, unquote(to_string(singular)) | rest], {duration, anchor}, now) do
-      duration = %{duration | unquote(unit) => duration.unquote(unit) + String.to_integer(amount, 10)}
-      do_parse_keyword_datetime(rest, {duration, anchor}, now)
+      :to ->
+        Timex.shift(anchor, build_timex_shift(duration, -1))
     end
   end
 
-  @spec anchor_to_key_and_offset(String.t() | atom()) :: {atom(), integer()}
-  for {singular, unit} <- rows do
-    defp anchor_to_key_and_offset(unquote(to_string(singular))), do: anchor_to_key_and_offset(unquote(unit))
-    defp anchor_to_key_and_offset(unquote(to_string(unit))), do: anchor_to_key_and_offset(unquote(unit))
-    defp anchor_to_key_and_offset(unquote(singular)), do: anchor_to_key_and_offset(unquote(unit))
+  defp resolve_anchor({:absolute, :today}, now) do
+    Timex.beginning_of_day(now)
   end
 
-  defp anchor_to_key_and_offset(:seconds), do: {:seconds, 1}
-  defp anchor_to_key_and_offset(:minutes), do: {:minutes, 1}
-  defp anchor_to_key_and_offset(:hours), do: {:hours, 1}
-  defp anchor_to_key_and_offset(:days), do: {:days, 1}
-  defp anchor_to_key_and_offset(:weeks), do: {:days, 7}
-  defp anchor_to_key_and_offset(:months), do: {:months, 1}
-  defp anchor_to_key_and_offset(:years), do: {:years, 1}
-  defp anchor_to_key_and_offset(:decades), do: {:years, 10}
-  defp anchor_to_key_and_offset(:centuries), do: {:years, 100}
-  defp anchor_to_key_and_offset(:millennia), do: {:years, 1000}
-
-  defp replace_anchor({direction, _}, value) do
-    {direction, value}
+  defp resolve_anchor({:absolute, :now}, now) do
+    now
   end
 
-  defp replace_anchor(nil, value) do
-    value
+  defp resolve_anchor({:absolute, :yesterday}, now) do
+    Timex.shift(now, days: -1)
   end
+
+  defp resolve_anchor({:absolute, :tomorrow}, now) do
+    Timex.shift(now, days: 1)
+  end
+
+  defp resolve_anchor({:relative, :next, unit}, now) do
+    {key, offset} = unit_to_shift(unit)
+    Timex.shift(now, [{key, offset}])
+  end
+
+  defp resolve_anchor({:relative, :last, unit}, now) do
+    {key, offset} = unit_to_shift(unit)
+    Timex.shift(now, [{key, -offset}])
+  end
+
+  defp build_timex_shift(duration, multiplier) do
+    years =
+      duration.years +
+        duration.decades * 10 +
+        duration.centuries * 100 +
+        duration.millennia * 1000
+
+    [
+      seconds: duration.seconds * multiplier,
+      minutes: duration.minutes * multiplier,
+      hours: duration.hours * multiplier,
+      days: (duration.days + duration.weeks * 7) * multiplier,
+      months: duration.months * multiplier,
+      years: years * multiplier
+    ]
+  end
+
+  defp unit_to_shift(:seconds), do: {:seconds, 1}
+  defp unit_to_shift(:minutes), do: {:minutes, 1}
+  defp unit_to_shift(:hours), do: {:hours, 1}
+  defp unit_to_shift(:days), do: {:days, 1}
+  defp unit_to_shift(:weeks), do: {:days, 7}
+  defp unit_to_shift(:months), do: {:months, 1}
+  defp unit_to_shift(:years), do: {:years, 1}
+  defp unit_to_shift(:decades), do: {:years, 10}
+  defp unit_to_shift(:centuries), do: {:years, 100}
+  defp unit_to_shift(:millennia), do: {:years, 1000}
 end

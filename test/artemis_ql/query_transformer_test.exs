@@ -282,6 +282,24 @@ for type <- [:struct, :module] do
       assert DateTime.to_date(a) == DateTime.to_date(b)
     end
 
+    test "supports @last-24-hours as a utc_datetime range start" do
+      assert {:ok, list, ""} = ArtemisQL.decode("inserted_at:@last-24-hours..")
+
+      query =
+        QuerySchema
+        |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+
+      assert %Ecto.Query{} = query
+
+      datetimes =
+        query.wheres
+        |> Enum.flat_map(& &1.params)
+        |> Enum.map(fn {value, _type} -> value end)
+        |> Enum.filter(&match?(%DateTime{}, &1))
+
+      assert 1 == length(datetimes)
+    end
+
     test "can handle wildcards for strings" do
       {:ok, list, ""} = ArtemisQL.decode("name:Name*")
 

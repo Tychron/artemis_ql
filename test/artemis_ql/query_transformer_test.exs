@@ -297,7 +297,12 @@ for type <- [:struct, :module] do
         |> Enum.map(fn {value, _type} -> value end)
         |> Enum.filter(&match?(%DateTime{}, &1))
 
-      assert 1 == length(datetimes)
+      assert [range_start] = datetimes
+
+      expected_start = DateTime.add(DateTime.utc_now(), -24 * 3600, :second)
+      drift_seconds = abs(DateTime.diff(range_start, expected_start, :second))
+
+      assert drift_seconds <= 2
     end
 
     test "can handle wildcards for strings" do

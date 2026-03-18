@@ -146,10 +146,15 @@ defmodule ArtemisQL.Types.DateAndTime do
 
   def parse_datetime(str, now)
 
-  def parse_datetime(<<"@", _::binary>> = str, now) do
-    str
-    |> parse_keyword_datetime!(now)
-    |> DateTime.to_date()
+  def parse_datetime(<<"@", rest::binary>>, now) do
+    spec = parse_functional_time_alias_spec!(rest)
+    datetime = apply_functional_time_spec(spec, now)
+
+    if day_wide_datetime_alias?(spec) do
+      DateTime.to_date(datetime)
+    else
+      datetime
+    end
   end
 
   def parse_datetime(str, now) when is_binary(str) do
@@ -201,13 +206,9 @@ defmodule ArtemisQL.Types.DateAndTime do
   end
 
   def parse_keyword_datetime!(<<"@", rest::binary>>, time_now) do
-    case ArtemisQL.Types.FunctionalTimeAliasParser.parse(rest) do
-      {:ok, spec} ->
-        apply_functional_time_spec(spec, time_now)
-
-      :error ->
-        raise %ValueTransformError{types: [:functional_time]}
-    end
+    rest
+    |> parse_functional_time_alias_spec!()
+    |> apply_functional_time_spec(time_now)
   end
 
   defp apply_functional_time_spec(
@@ -253,6 +254,27 @@ defmodule ArtemisQL.Types.DateAndTime do
     {key, offset} = unit_to_shift(unit)
     Timex.shift(now, [{key, -offset}])
   end
+
+  defp parse_functional_time_alias_spec!(rest) when is_binary(rest) do
+    case ArtemisQL.Types.FunctionalTimeAliasParser.parse(rest) do
+      {:ok, spec} ->
+        spec
+
+      :error ->
+        raise %ValueTransformError{types: [:functional_time]}
+    end
+  end
+
+  defp day_wide_datetime_alias?(%{
+         duration: duration,
+         direction: :point,
+         anchor: {:absolute, anchor}
+       })
+       when anchor in [:today, :now, :yesterday, :tomorrow] do
+    Enum.all?(duration, fn {_unit, value} -> value == 0 end)
+  end
+
+  defp day_wide_datetime_alias?(_), do: false
 
   defp build_timex_shift(duration, multiplier) do
     years =

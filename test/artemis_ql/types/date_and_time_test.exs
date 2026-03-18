@@ -232,8 +232,26 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
   end
 
   describe "parse_datetime/1" do
-    test "returns a date for @ keyword inputs" do
-      assert %Date{} = Subject.parse_datetime("@now")
+    test "returns a date for absolute @ keyword inputs" do
+      date = Date.utc_today()
+      assert date == Subject.parse_datetime("@now")
+      assert date == Subject.parse_datetime("@today")
+      yesterday = Timex.shift(Date.utc_today(), days: -1)
+      assert yesterday == Subject.parse_datetime("@yesterday")
+      tomorrow = Timex.shift(Date.utc_today(), days: +1)
+      assert tomorrow == Subject.parse_datetime("@tomorrow")
+    end
+
+    test "returns datetime for relative @ keyword inputs" do
+      now = ~U[2026-01-01 12:34:56.123456Z]
+
+      assert %DateTime{} = Subject.parse_datetime("@last-24-hours", now)
+
+      assert :eq ==
+               DateTime.compare(
+                 Subject.parse_datetime("@last-24-hours", now),
+                 Timex.shift(now, hours: -24)
+               )
     end
   end
 

@@ -2,6 +2,8 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
   use ExUnit.Case
 
   alias ArtemisQL.Types.DateAndTime, as: Subject
+  alias ArtemisQL.Utils
+
 
   describe "parse_date/1" do
     test "can parse a whole date string" do
@@ -45,13 +47,13 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@yesterday", now),
-                 Timex.shift(now, days: -1)
+                 Utils.time_shift(now, days: -1)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@tomorrow", now),
-                 Timex.shift(now, days: 1)
+                 Utils.time_shift(now, days: 1)
                )
     end
 
@@ -61,19 +63,19 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@6-hours-till-now", now),
-                 Timex.shift(now, hours: -6)
+                 Utils.time_shift(now, hours: -6)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@6-hours-ago", now),
-                 Timex.shift(now, hours: -6)
+                 Utils.time_shift(now, hours: -6)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@6-hours-later", now),
-                 Timex.shift(now, hours: 6)
+                 Utils.time_shift(now, hours: 6)
                )
     end
 
@@ -109,25 +111,25 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
         assert :eq ==
                  DateTime.compare(
                    Subject.parse_keyword_datetime!("@next-#{period}", now),
-                   Timex.shift(now, [{shift_id, 1 * mult}])
+                   Utils.time_shift(now, [{shift_id, 1 * mult}])
                  )
 
         assert :eq ==
                  DateTime.compare(
                    Subject.parse_keyword_datetime!("@prev-#{period}", now),
-                   Timex.shift(now, [{shift_id, -1 * mult}])
+                   Utils.time_shift(now, [{shift_id, -1 * mult}])
                  )
 
         assert :eq ==
                  DateTime.compare(
                    Subject.parse_keyword_datetime!("@last-#{period}", now),
-                   Timex.shift(now, [{shift_id, -1 * mult}])
+                   Utils.time_shift(now, [{shift_id, -1 * mult}])
                  )
 
         assert :eq ==
                  DateTime.compare(
                    Subject.parse_keyword_datetime!("@previous-#{period}", now),
-                   Timex.shift(now, [{shift_id, -1 * mult}])
+                   Utils.time_shift(now, [{shift_id, -1 * mult}])
                  )
       end
 
@@ -143,19 +145,19 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@1-decade-ago", now),
-                 Timex.shift(now, years: -10)
+                 Utils.time_shift(now, years: -10)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@1-century-ago", now),
-                 Timex.shift(now, years: -100)
+                 Utils.time_shift(now, years: -100)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@1-millennium-ago", now),
-                 Timex.shift(now, years: -1000)
+                 Utils.time_shift(now, years: -1000)
                )
     end
 
@@ -165,19 +167,19 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@last-24-hours", now),
-                 Timex.shift(now, hours: -24)
+                 Utils.time_shift(now, hours: -24)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@next-24-hours", now),
-                 Timex.shift(now, hours: 24)
+                 Utils.time_shift(now, hours: 24)
                )
 
       assert :eq ==
                DateTime.compare(
                  Subject.parse_keyword_datetime!("@last-24-days-and-3-hours", now),
-                 Timex.shift(now, days: -24, hours: -3)
+                 Utils.time_shift(now, days: -24, hours: -3)
                )
     end
 
@@ -236,9 +238,9 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       date = Date.utc_today()
       assert date == Subject.parse_datetime("@now")
       assert date == Subject.parse_datetime("@today")
-      yesterday = Timex.shift(Date.utc_today(), days: -1)
+      yesterday = Utils.time_shift(Date.utc_today(), days: -1)
       assert yesterday == Subject.parse_datetime("@yesterday")
-      tomorrow = Timex.shift(Date.utc_today(), days: +1)
+      tomorrow = Utils.time_shift(Date.utc_today(), days: +1)
       assert tomorrow == Subject.parse_datetime("@tomorrow")
     end
 
@@ -250,7 +252,7 @@ defmodule ArtemisQL.Types.DateAndTimeTest do
       assert :eq ==
                DateTime.compare(
                  Subject.parse_datetime("@last-24-hours", now),
-                 Timex.shift(now, hours: -24)
+                 Utils.time_shift(now, hours: -24)
                )
     end
   end

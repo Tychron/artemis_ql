@@ -609,15 +609,15 @@ defmodule ArtemisQL.Types do
   end
 
   def value_to_date(r_value_token(value: {:partial_date, {year, month}}), :end) do
-    Timex.end_of_month(%Date{year: year, month: month, day: 1})
+    ArtemisQL.Utils.end_of_month(%Date{year: year, month: month, day: 1})
   end
 
   def value_to_date(r_value_token(value: {:partial_date, {year}}), :start) do
-    Timex.beginning_of_year(year)
+    ArtemisQL.Utils.beginning_of_year(year)
   end
 
   def value_to_date(r_value_token(value: {:partial_date, {year}}), :end) do
-    Timex.end_of_year(year)
+    ArtemisQL.Utils.end_of_year(year)
   end
 
   # def value_to_time({:pin, _} = value, _) do
@@ -669,11 +669,11 @@ defmodule ArtemisQL.Types do
   end
 
   def value_to_naive_datetime(r_value_token(value: {:partial_date, {year, month}}), :end) do
-    Timex.end_of_month(%NaiveDateTime{year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
+    ArtemisQL.Utils.end_of_month(%NaiveDateTime{year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
   def value_to_naive_datetime(r_value_token(value: {:partial_date, {year}}), :end) do
-    Timex.end_of_year(%NaiveDateTime{year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
+    ArtemisQL.Utils.end_of_year(%NaiveDateTime{year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
   def value_to_naive_datetime(r_value_token(value: {:partial_naive_datetime, date, time}), range_point) do
@@ -720,12 +720,12 @@ defmodule ArtemisQL.Types do
 
   def value_to_utc_datetime(r_value_token(value: {:partial_date, {year, month}}), :end) do
     dt = DateTime.utc_now()
-    Timex.end_of_month(%DateTime{dt | year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
+    ArtemisQL.Utils.end_of_month(%DateTime{dt | year: year, month: month, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
   def value_to_utc_datetime(r_value_token(value: {:partial_date, {year}}), :end) do
     dt = DateTime.utc_now()
-    Timex.end_of_year(%DateTime{dt | year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
+    ArtemisQL.Utils.end_of_year(%DateTime{dt | year: year, month: 1, day: 1, hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
   end
 
   def value_to_utc_datetime(r_value_token(value: {:partial_datetime, date, time}), range_point) do

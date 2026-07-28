@@ -9,7 +9,7 @@ defmodule ArtemisQL.MixProject do
       config_path: "config/config.exs",
       deps_path: "deps",
       lockfile: "mix.lock",
-      elixir: "~> 1.11",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       elixirc_options: [
         warnings_as_errors: true,
@@ -52,7 +52,6 @@ defmodule ArtemisQL.MixProject do
       {:postgrex, "~> 0.11", only: [:test]},
       {:ecto_enum, "~> 1.4", only: [:test]},
       {:jason, "~> 1.0", only: [:test]},
-      {:timex, "~> 3.6"},
       {:decimal, "~> 2.0"},
     ]
   end

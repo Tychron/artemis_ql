@@ -222,15 +222,15 @@ defmodule ArtemisQL.Types.DateAndTime do
         anchor
 
       :from ->
-        Timex.shift(anchor, build_timex_shift(duration, 1))
+        ArtemisQL.Utils.time_shift(anchor, build_time_offset_options(duration, 1))
 
       :to ->
-        Timex.shift(anchor, build_timex_shift(duration, -1))
+        ArtemisQL.Utils.time_shift(anchor, build_time_offset_options(duration, -1))
     end
   end
 
   defp resolve_anchor({:absolute, :today}, now) do
-    Timex.beginning_of_day(now)
+    ArtemisQL.Utils.beginning_of_day(now)
   end
 
   defp resolve_anchor({:absolute, :now}, now) do
@@ -238,21 +238,21 @@ defmodule ArtemisQL.Types.DateAndTime do
   end
 
   defp resolve_anchor({:absolute, :yesterday}, now) do
-    Timex.shift(now, days: -1)
+    ArtemisQL.Utils.time_shift(now, days: -1)
   end
 
   defp resolve_anchor({:absolute, :tomorrow}, now) do
-    Timex.shift(now, days: 1)
+    ArtemisQL.Utils.time_shift(now, days: 1)
   end
 
   defp resolve_anchor({:relative, :next, unit}, now) do
     {key, offset} = unit_to_shift(unit)
-    Timex.shift(now, [{key, offset}])
+    ArtemisQL.Utils.time_shift(now, [{key, offset}])
   end
 
   defp resolve_anchor({:relative, :last, unit}, now) do
     {key, offset} = unit_to_shift(unit)
-    Timex.shift(now, [{key, -offset}])
+    ArtemisQL.Utils.time_shift(now, [{key, -offset}])
   end
 
   defp parse_functional_time_alias_spec!(rest) when is_binary(rest) do
@@ -276,7 +276,7 @@ defmodule ArtemisQL.Types.DateAndTime do
 
   defp day_wide_datetime_alias?(_), do: false
 
-  defp build_timex_shift(duration, multiplier) do
+  defp build_time_offset_options(duration, factor) do
     years =
       duration.years +
         duration.decades * 10 +
@@ -284,12 +284,12 @@ defmodule ArtemisQL.Types.DateAndTime do
         duration.millennia * 1000
 
     [
-      seconds: duration.seconds * multiplier,
-      minutes: duration.minutes * multiplier,
-      hours: duration.hours * multiplier,
-      days: (duration.days + duration.weeks * 7) * multiplier,
-      months: duration.months * multiplier,
-      years: years * multiplier
+      seconds: duration.seconds * factor,
+      minutes: duration.minutes * factor,
+      hours: duration.hours * factor,
+      days: (duration.days + duration.weeks * 7) * factor,
+      months: duration.months * factor,
+      years: years * factor
     ]
   end
 

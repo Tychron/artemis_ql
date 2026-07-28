@@ -394,4 +394,118 @@ defmodule ArtemisQL.Utils do
   def should_quote_string?(<<_c::utf8, rest::binary>>) do
     should_quote_string?(rest)
   end
+
+  @time_structs [DateTime, NaiveDateTime, Time]
+
+  @calendar_structs [DateTime, NaiveDateTime, Date, Time]
+
+  @spec beginning_of_day(DateTime.t()) :: DateTime.t()
+  @spec beginning_of_day(NaiveDateTime.t()) :: NaiveDateTime.t()
+  @spec beginning_of_day(Time.t()) :: Time.t()
+  for s <- @time_structs do
+    def beginning_of_day(%unquote(s){microsecond: {_, m}} = subject) do
+      %unquote(s){subject | hour: 0, minute: 0, second: 0, microsecond: {0, m}}
+    end
+  end
+
+  @spec beginning_of_day(Date.t()) :: Date.t()
+  def beginning_of_day(%Date{} = date) do
+    date
+  end
+
+  @spec end_of_day(DateTime.t()) :: DateTime.t()
+  @spec end_of_day(NaiveDateTime.t()) :: NaiveDateTime.t()
+  @spec end_of_day(Time.t()) :: Time.t()
+  for s <- @time_structs do
+    def end_of_day(%unquote(s){microsecond: {_, m}} = subject) do
+      microsecond =
+        if m > 0 do
+          {((m + 1) * 10) - 1, m}
+        else
+          {0, m}
+        end
+      %unquote(s){subject | hour: 23, minute: 59, second: 59, microsecond: microsecond}
+    end
+  end
+
+  @spec end_of_day(Date.t()) :: Date.t()
+  def end_of_day(%Date{} = date) do
+    date
+  end
+
+  for s <- @calendar_structs do
+    if s == Time do
+      def beginning_of_month(%unquote(s){} = subject) do
+        beginning_of_day(subject)
+      end
+    else
+      def beginning_of_month(%unquote(s){} = value) do
+        %unquote(s){} = value = %unquote(s){value | day: 1}
+        beginning_of_day(value)
+      end
+    end
+  end
+
+  for s <- @calendar_structs do
+    if s == Time do
+      def end_of_month(%unquote(s){} = value) do
+        end_of_day(value)
+      end
+    else
+      def end_of_month(%unquote(s){} = value) do
+        %unquote(s){} = value = %unquote(s){value | day: Date.days_in_month(value)}
+        end_of_day(value)
+      end
+    end
+  end
+
+  for s <- @calendar_structs do
+    if s == Time do
+      def beginning_of_year(%unquote(s){} = value) do
+        beginning_of_month(value)
+      end
+    else
+      def beginning_of_year(%unquote(s){} = value) do
+        %unquote(s){} = value = %unquote(s){value | month: 1}
+        beginning_of_month(value)
+      end
+    end
+  end
+
+  def beginning_of_year(year) when is_integer(year) do
+    Date.new!(year, 1, 1)
+  end
+
+  for s <- @calendar_structs do
+    if s == Time do
+      def end_of_year(%unquote(s){} = value) do
+        end_of_month(value)
+      end
+    else
+      def end_of_year(%unquote(s){} = value) do
+        %unquote(s){} = value = %unquote(s){value | month: Date.months_in_year(value)}
+        end_of_month(value)
+      end
+    end
+  end
+
+  def end_of_year(year) when is_integer(year) do
+    end_of_year(Date.new!(year, 1, 1))
+  end
+
+  def time_shift(%s{} = subject, options) when s in @calendar_structs do
+    s.shift(subject, shift_options_compat(options, :elixir))
+  end
+
+  defp shift_options_compat(options, :elixir) do
+    Enum.map(options, fn
+      {:milliseconds, v} -> {:millisecond, v}
+      {:seconds, v} -> {:second, v}
+      {:minutes, v} -> {:minute, v}
+      {:hours, v} -> {:hour, v}
+      {:days, v} -> {:day, v}
+      {:months, v} -> {:month, v}
+      {:years, v} -> {:year, v}
+    end)
+  end
 end

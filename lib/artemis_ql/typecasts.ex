@@ -3,6 +3,16 @@ defmodule ArtemisQL.Typecasts do
 
   import ArtemisQL.Utils
 
+  @spec cast_binary_id(binary()) :: {:ok, String.t()} | :error
+  def cast_binary_id(value) when is_binary(value) do
+    case cast_uuid(value) do
+      {:ok, _value} = result -> result
+      :error -> cast_ulid(value)
+    end
+  end
+
+  def cast_binary_id(_value), do: :error
+
   @spec cast_uuid(binary()) :: {:ok, String.t()} | :error
   def cast_uuid(str) do
     Ecto.UUID.cast(str)
@@ -144,9 +154,11 @@ defmodule ArtemisQL.Typecasts do
     end
   end
 
-  @spec cast_atom(String.t()) :: {:ok, atom()}
+  @spec cast_atom(String.t()) :: {:ok, atom()} | :error
   def cast_atom(str) do
     {:ok, String.to_existing_atom(str)}
+  rescue
+    ArgumentError -> :error
   end
 
   @spec cast_date(String.t()) :: {:ok, Date.t()}

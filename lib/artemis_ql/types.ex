@@ -114,6 +114,9 @@ defmodule ArtemisQL.Types do
 
       {:abort, reason} ->
         {:abort, reason}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -124,6 +127,9 @@ defmodule ArtemisQL.Types do
 
       {:abort, reason} ->
         {:abort, reason}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -142,8 +148,8 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_pair_transform(type, key, r_list_token(items: items), search_map) do
-    {key, items} =
-      Enum.reduce(items, {key, []}, fn value, {key, acc} ->
+    result =
+      Enum.reduce_while(items, {:ok, key, []}, fn value, {:ok, key, acc} ->
         case handle_pair_transform(type, key, value, search_map) do
           {:ok, key, r_token() = value} ->
             case value do
@@ -153,18 +159,30 @@ defmodule ArtemisQL.Types do
                     [nested_item | acc]
                   end)
 
-                {key, acc}
+                {:cont, {:ok, key, acc}}
 
               _ ->
-                {key, [value | acc]}
+                {:cont, {:ok, key, [value | acc]}}
             end
 
-          {:abort, reason} ->
-            throw {:abort, reason}
+          {:abort, _reason} = abort ->
+            {:halt, abort}
+
+          {:error, _reason} = error ->
+            {:halt, error}
         end
       end)
 
-    {:ok, key, r_list_token(items: Enum.reverse(items))}
+    case result do
+      {:ok, key, items} ->
+        {:ok, key, r_list_token(items: Enum.reverse(items))}
+
+      {:abort, _reason} = abort ->
+        abort
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   def handle_pair_transform(type, key, r_cmp_token(pair: {operator, value}, meta: meta), search_map) do
@@ -174,6 +192,9 @@ defmodule ArtemisQL.Types do
 
       {:abort, reason} ->
         {:abort, reason}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -183,6 +204,10 @@ defmodule ArtemisQL.Types do
 
   def handle_pair_transform(type, key, nil, _search_map) when type != nil do
     {:abort, {:empty_value, key}}
+  end
+
+  def handle_pair_transform(:reject, _key, _value, _search_map) do
+    {:abort, :reject}
   end
 
   def handle_pair_transform({:type, module}, key, value, search_map) do
@@ -202,11 +227,17 @@ defmodule ArtemisQL.Types do
   end
 
   def handle_pair_transform({:apply, module, function_name, args}, key, value, _search_map) do
-    :erlang.apply(module, function_name, [key, value | args])
+    case :erlang.apply(module, function_name, [key, value | args]) do
+      :reject -> {:abort, :reject}
+      result -> result
+    end
   end
 
   def handle_pair_transform(function, key, value, _search_map) when is_function(function, 2) do
-    function.(key, value)
+    case function.(key, value) do
+      :reject -> {:abort, :reject}
+      result -> result
+    end
   end
 
   @spec handle_type_module_transform(
@@ -218,7 +249,7 @@ defmodule ArtemisQL.Types do
   ) :: {:ok, key::atom(), token::any()}
      | {:error, term()}
   def handle_type_module_transform(:binary_id, _params, key, value, search_map) do
-    case recast_token(value, &Ecto.Type.cast(:binary_id, &1), search_map) do
+    case recast_token(value, &cast_binary_id/1, search_map) do
       {:ok, token} ->
         {:ok, key, token}
 
@@ -549,6 +580,12 @@ defmodule ArtemisQL.Types do
         {:ok, r_value_token(value: value, meta: meta)}
 
       :error ->
+        {:error, :cast_error}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _other ->
         {:error, :cast_error}
     end
   end

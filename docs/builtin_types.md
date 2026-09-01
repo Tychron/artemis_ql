@@ -18,7 +18,8 @@ __Scalars__ `binary_id`, `integer`, `float`, `atom`, `string`, `decimal`, `boole
 
 ## `binary_id`
 
-For any general `binary_id` types, this works for UUID and ULID, however they will not be validated.
+For general `binary_id` fields, ArtemisQL accepts validated UUID and ULID values. Use the more
+specific `uuid` or `ulid` type whenever the field accepts only one of those formats.
 
 ## `uuid`
 ## `ulid`

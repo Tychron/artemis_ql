@@ -13,6 +13,7 @@ end
 defmodule ArtemisQL.Ecto.QueryTransformer do
   alias ArtemisQL.SearchMap
   alias ArtemisQL.Types
+  alias ArtemisQL.Typecasts
   alias ArtemisQL.Ecto.QueryTransformer.Context
   alias ArtemisQL.Errors.KeyNotFound
   alias ArtemisQL.Errors.InvalidEnumValue
@@ -178,6 +179,9 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
 
           {:abort, reason} ->
             {:halt, {:abort, reason}}
+
+          :reject ->
+            {:halt, {:abort, :reject}}
         end
     end
   end
@@ -238,11 +242,19 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   end
 
   defp handle_apply_pair_filter_result({:type, module}, query, key, value) do
-    apply_type_filter(module, query, key, value)
+    with :ok <- validate_filter_value(query, key, value) do
+      apply_type_filter(module, query, key, value)
+    else
+      {:error, reason} -> {:abort, reason}
+    end
   end
 
   defp handle_apply_pair_filter_result({:type, type, new_key_or_field, value}, query, _key, _value) do
-    apply_type_filter(type, query, new_key_or_field, value)
+    with :ok <- validate_filter_value(query, new_key_or_field, value) do
+      apply_type_filter(type, query, new_key_or_field, value)
+    else
+      {:error, reason} -> {:abort, reason}
+    end
   end
 
   defp handle_apply_pair_filter_result({:jsonb, module_or_type, jsonb_data_key, path}, query, _key, value) do
@@ -250,11 +262,19 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   end
 
   defp handle_apply_pair_filter_result({:assoc, module_or_type, assoc_name}, query, field_name, value) do
-    apply_type_filter(module_or_type, query, {:assoc, assoc_name, field_name}, value)
+    with :ok <- validate_assoc_filter_value(query, assoc_name, field_name, value) do
+      apply_type_filter(module_or_type, query, {:assoc, assoc_name, field_name}, value)
+    else
+      {:error, reason} -> {:abort, reason}
+    end
   end
 
   defp handle_apply_pair_filter_result({:assoc, module_or_type, assoc_name, field_name}, query, _key, value) do
-    apply_type_filter(module_or_type, query, {:assoc, assoc_name, field_name}, value)
+    with :ok <- validate_assoc_filter_value(query, assoc_name, field_name, value) do
+      apply_type_filter(module_or_type, query, {:assoc, assoc_name, field_name}, value)
+    else
+      {:error, reason} -> {:abort, reason}
+    end
   end
 
   defp handle_apply_pair_filter_result(func, query, key, value) when is_function(func, 3) do
@@ -268,4 +288,110 @@ defmodule ArtemisQL.Ecto.QueryTransformer do
   defp handle_apply_pair_filter_result(schema, _old_query, _key, _value) when is_atom(schema) and not is_boolean(schema) do
     schema
   end
+
+  defp validate_filter_value(query, field_name, value) when is_atom(field_name) do
+    case query_schema(query) do
+      nil ->
+        :ok
+
+      schema ->
+        validate_schema_value(schema.__schema__(:type, field_name), value)
+    end
+  end
+
+  defp validate_filter_value(_query, _field_name, _value), do: :ok
+
+  defp validate_assoc_filter_value(query, assoc_name, field_name, value) do
+    with schema when not is_nil(schema) <- query_schema(query),
+         %{related: related_schema} <- schema.__schema__(:association, assoc_name) do
+      validate_schema_value(related_schema.__schema__(:type, field_name), value)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp validate_schema_value(nil, _value), do: :ok
+
+  defp validate_schema_value(schema_type, value) do
+    case identifier_schema_type?(schema_type) do
+      true -> validate_identifier_token(value, schema_type)
+      false -> :ok
+    end
+  end
+
+  defp identifier_schema_type?(:binary_id), do: true
+
+  defp identifier_schema_type?(schema_type) when is_atom(schema_type) do
+    function_exported?(schema_type, :type, 0) and schema_type.type() in [:binary_id, :uuid]
+  rescue
+    _error -> false
+  end
+
+  defp identifier_schema_type?(_schema_type), do: false
+
+  defp validate_identifier_token(r_value_token(value: value), schema_type) do
+    validate_identifier_value(value, schema_type)
+  end
+
+  defp validate_identifier_token(r_list_token(items: items), schema_type) do
+    Enum.reduce_while(items, :ok, fn item, :ok ->
+      case validate_identifier_token(item, schema_type) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_identifier_token(r_cmp_token(pair: {_operator, value}), schema_type) do
+    validate_identifier_token(value, schema_type)
+  end
+
+  defp validate_identifier_token(r_range_token(pair: {a, b}), schema_type) do
+    with :ok <- validate_identifier_token(a, schema_type),
+         :ok <- validate_identifier_token(b, schema_type) do
+      :ok
+    end
+  end
+
+  defp validate_identifier_token(r_group_token(items: items), schema_type) do
+    Enum.reduce_while(items, :ok, fn item, :ok ->
+      case validate_identifier_token(item, schema_type) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_identifier_token(_token, _schema_type), do: :ok
+
+  defp validate_identifier_value(value, :binary_id) do
+    case Typecasts.cast_binary_id(value) do
+      {:ok, _value} -> :ok
+      :error -> {:error, :cast_error}
+    end
+  end
+
+  defp validate_identifier_value(value, schema_type) do
+    case Ecto.Type.cast(schema_type, value) do
+      {:ok, _value} -> :ok
+      :error -> {:error, :cast_error}
+      {:error, _reason} -> {:error, :cast_error}
+    end
+  rescue
+    _error -> {:error, :cast_error}
+  end
+
+  defp query_schema(schema) when is_atom(schema) and not is_boolean(schema) do
+    case function_exported?(schema, :__schema__, 1) do
+      true -> schema
+      false -> nil
+    end
+  end
+
+  defp query_schema(%Ecto.Query{from: %{source: {_source, schema}}})
+       when is_atom(schema) and not is_nil(schema) do
+    schema
+  end
+
+  defp query_schema(_query), do: nil
 end

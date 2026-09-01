@@ -59,6 +59,93 @@ defmodule ArtemisQL.IntegrationTest do
     end
   end
 
+  describe "malformed built-in type values" do
+    test "return cast errors at every nesting level instead of raising" do
+      malformed_values = [
+        {"uuid", "not-a-uuid"},
+        {"ulid", "not-a-ulid"},
+        {"bool", "maybe"},
+        {"int", "not-an-integer"},
+        {"flt", "not-a-float"},
+        {"dec", "not-a-decimal"},
+        {"inet", "999.0.0.1"},
+        {"cidr", "10.0.0.1"},
+        {"date", "not-a-date"},
+        {"time", "not-a-time"},
+        {"uts", "not-a-datetime"},
+        {"nts", "not-a-datetime"},
+        {"narr_i", "not-an-integer"}
+      ]
+
+      for {field, value} <- malformed_values,
+          search <- [
+            "#{field}:#{value}",
+            "#{field}:>#{value}",
+            "#{field}:(#{value})",
+            "#{field}:#{value},#{value}",
+            "#{field}:#{value}..#{value}",
+            "#{field}:#{value}*"
+          ] do
+        assert {:abort, :cast_error} =
+                 ArtemisQL.to_ecto_query(TestModel, search, TestModel.search_spec(), []),
+               "expected #{inspect(search)} to return a cast error"
+      end
+    end
+
+    test "rejects malformed binary ids at every nesting level" do
+      search_map = put_in(TestModel.search_spec().pair_transform.id, {:type, :binary_id})
+
+      for search <- [
+            "id:not-an-id",
+            "id:>not-an-id",
+            "id:(not-an-id)",
+            "id:not-an-id,not-an-id",
+            "id:not-an-id..not-an-id",
+            "id:not-an-id*"
+          ] do
+        assert {:abort, :cast_error} =
+                 ArtemisQL.to_ecto_query(TestModel, search, search_map, [])
+      end
+    end
+
+    test "rejects values that do not match the Ecto schema type" do
+      search_map = put_in(TestModel.search_spec().pair_transform.ulid, {:type, :binary_id})
+
+      assert %Ecto.Query{} =
+               ArtemisQL.to_ecto_query(
+                 TestModel,
+                 "ulid:#{Ecto.ULID.generate()}",
+                 search_map,
+                 []
+               )
+
+      for search <- [
+            "ulid:#{Ecto.UUID.generate()}",
+            "name:anything ulid:#{Ecto.UUID.generate()}"
+          ] do
+        assert {:abort, :cast_error} =
+                 ArtemisQL.to_ecto_query(TestModel, search, search_map, [])
+      end
+    end
+
+    test "unknown atoms return cast errors at every nesting level instead of raising" do
+      search_map = put_in(TestModel.search_spec().pair_transform.str, {:type, :atom})
+      unknown_atom = "artemis_ql_unknown_atom_#{System.unique_integer([:positive])}"
+
+      for search <- [
+            "str:#{unknown_atom}",
+            "str:>#{unknown_atom}",
+            "str:(#{unknown_atom})",
+            "str:#{unknown_atom},#{unknown_atom}",
+            "str:#{unknown_atom}..#{unknown_atom}",
+            "str:#{unknown_atom}*"
+          ] do
+        assert {:abort, :cast_error} =
+                 ArtemisQL.to_ecto_query(TestModel, search, search_map, [])
+      end
+    end
+  end
+
   describe "integers queries" do
     test "can query a record by its binary id" do
       model = insert_test_mode(name: "name1", int: 12)
@@ -220,6 +307,16 @@ defmodule ArtemisQL.IntegrationTest do
         %{name: "name3"},
         %{name: "name4"},
       ] = execute_query("enum_i:i_1,i_2,i_3,i_4")
+    end
+
+    test "invalid enum list values abort instead of raising" do
+      assert {:abort, %ArtemisQL.Errors.InvalidEnumValue{key: :enum_i}} =
+               ArtemisQL.to_ecto_query(
+                 TestModel,
+                 "enum_i:i_1,not_an_enum",
+                 TestModel.search_spec(),
+                 []
+               )
     end
 
     test "can lookup models by enum values with mixed" do

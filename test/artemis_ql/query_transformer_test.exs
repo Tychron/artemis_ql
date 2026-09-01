@@ -177,6 +177,16 @@ defmodule ArtemisQL.QueryTransformerTest do
     resolver: nil
   }
 
+  test "pair transform rejections abort at every nesting level" do
+    search_map = put_in(@search_map.pair_transform.int, fn _key, _value -> :reject end)
+
+    for search <- ["int:1", "int:(1)", "int:1,2"] do
+      assert {:abort, :reject} =
+               QuerySchema
+               |> ArtemisQL.to_ecto_query(search, search_map)
+    end
+  end
+
 for type <- [:struct, :module] do
   describe "(#{type}) to_ecto_query/3" do
     test "can gracefully handle missing keys" do
@@ -256,6 +266,23 @@ for type <- [:struct, :module] do
         |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
 
       assert {:abort, :cast_error} = query
+    end
+
+    test "returns abort for nested type cast failures" do
+      for search <- [
+            "int:>abc",
+            "int:(abc)",
+            "int:1,abc",
+            "int:(1,abc)",
+            "int:1..abc",
+            "int:abc*"
+          ] do
+        assert {:ok, list, ""} = ArtemisQL.decode(search)
+
+        assert {:abort, :cast_error} =
+                 QuerySchema
+                 |> ArtemisQL.to_ecto_query(list, get_search_map(unquote(type)))
+      end
     end
 
     test "expands @now for utc_datetime into full-day range filters" do

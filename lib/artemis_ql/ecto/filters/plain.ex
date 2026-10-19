@@ -52,13 +52,20 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
   ) when type in @id_scalars do
     # This exists, because something stupid happens with the value casting when using a dynamic
     # query for any binary id type fields
+    {nulls, items} = Enum.split_with(items, &match?(r_null_token(), &1))
+
     items =
       Enum.map(items, fn r_value_token(value: value) ->
         value
       end)
 
-    query
-    |> where([m], field(m, ^key) in ^items)
+    case nulls do
+      [] ->
+        where(query, [m], field(m, ^key) in ^items)
+
+      _ ->
+        where(query, [m], is_nil(field(m, ^key)) or field(m, ^key) in ^items)
+    end
   end
 
   def apply_type_filter(
@@ -269,64 +276,26 @@ defmodule ArtemisQL.Ecto.Filters.Plain do
   ) when type in @scalars do
     # OP(a,b,c)
     case operator do
-      :gte ->
-        Enum.reduce(items, query, fn r_value_token(value: value), query ->
-          query
-          |> where([m], field(m, ^key) >= ^value)
-        end)
-
-      :lte ->
-        Enum.reduce(items, query, fn r_value_token(value: value), query ->
-          query
-          |> where([m], field(m, ^key) <= ^value)
-        end)
-
-      :gt ->
-        Enum.reduce(items, query, fn r_value_token(value: value), query ->
-          query
-          |> where([m], field(m, ^key) > ^value)
-        end)
-
-      :lt ->
-        Enum.reduce(items, query, fn r_value_token(value: value), query ->
-          query
-          |> where([m], field(m, ^key) < ^value)
-        end)
-
       :neq ->
+        {nulls, items} = Enum.split_with(items, &match?(r_null_token(), &1))
         values =
           Enum.map(items, fn r_value_token(value: value) ->
             value
           end)
 
-        query
-        |> where([m], field(m, ^key) not in ^values)
+        query = where(query, [m], field(m, ^key) not in ^values)
+
+        case nulls do
+          [] -> query
+          _ -> where(query, [m], not is_nil(field(m, ^key)))
+        end
 
       :eq ->
-        values =
-          Enum.map(items, fn r_value_token(value: value) ->
-            value
-          end)
+        apply_type_filter(type, query, key, r_list_token(items: items))
 
-        query
-        |> where([m], field(m, ^key) in ^values)
-
-      :fuzz ->
-        Enum.reduce(items, query, fn
-          r_value_token(value: value), query ->
-            value = "%#{escape_string_for_like(value)}%"
-
-            query
-            |> where([m], fragment("? ILIKE ?", field(m, ^key), ^value))
-        end)
-
-      :nfuzz ->
-        Enum.reduce(items, query, fn
-          r_value_token(value: value), query ->
-            value = "%#{escape_string_for_like(value)}%"
-
-            query
-            |> where([m], fragment("? NOT ILIKE ?", field(m, ^key), ^value))
+      op when op in [:gte, :lte, :gt, :lt, :fuzz, :nfuzz] ->
+        Enum.reduce(items, query, fn item, query ->
+          apply_type_filter(type, query, key, r_cmp_token(pair: {op, item}))
         end)
     end
   end

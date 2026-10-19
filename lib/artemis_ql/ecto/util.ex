@@ -32,6 +32,9 @@ defmodule ArtemisQL.Ecto.Util do
         # This is the partial or OR case, where individual items must be `or`-ed
         items_query =
           Enum.reduce(items, dynamic(false), fn
+            r_null_token(), head ->
+              dynamic(^head or is_nil(^field_fragment))
+
             r_value_token(value: value), head ->
               dynamic(^head or ^field_fragment == ^value)
 
@@ -142,6 +145,9 @@ defmodule ArtemisQL.Ecto.Util do
         # This is the partial or OR case, where individual items must be `or`-ed
         items_query =
           Enum.reduce(items, dynamic(false), fn
+            r_null_token(), head ->
+              dynamic(^head or is_nil(^field_fragment))
+
             r_value_token(value: value), head ->
               dynamic(^head or fragment("? @> ?", ^field_fragment, ^value))
 
@@ -163,6 +169,9 @@ defmodule ArtemisQL.Ecto.Util do
 
   def determine_list_method(items) do
     Enum.reduce(items, :in, fn
+      r_null_token(), _method ->
+        :or
+
       r_value_token(value: _value), method ->
         method
 

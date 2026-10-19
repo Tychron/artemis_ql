@@ -96,7 +96,7 @@ defmodule ArtemisQL.Types do
 
   def handle_pair_transform(type, key, r_group_token(items: [item]), search_map) when type != nil do
     case handle_pair_transform(type, key, item, search_map) do
-      {:ok, key, r_token(kind: kind) = value_token} when kind in [:value, :list, :partial] ->
+      {:ok, key, r_token(kind: kind) = value_token} when kind in [:value, :list, :partial, :NULL] ->
         {:ok, key, value_token}
 
       {:ok, _key, _token} ->

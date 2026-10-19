@@ -13,6 +13,23 @@ defmodule ArtemisQL.DecoderTest do
   ]
 
   describe "decode/1" do
+    test "can decode NULL in every list position" do
+      for {search, kinds} <- [
+            {"NULL,A,B", [:NULL, :word, :word]},
+            {"A,NULL,B", [:word, :NULL, :word]},
+            {"A,B,NULL", [:word, :word, :NULL]},
+            {"NULL,NULL", [:NULL, :NULL]},
+            {"null,A", [:NULL, :word]}
+          ] do
+        assert {:ok, [{:list, items, _}], ""} = ArtemisQL.decode(search)
+        assert Enum.map(items, &elem(&1, 0)) == kinds
+
+        assert {:ok, [{:pair, {{:word, "field", _}, {:list, pair_items, _}}, _}], ""} =
+                 ArtemisQL.decode("field:" <> search)
+        assert Enum.map(pair_items, &elem(&1, 0)) == kinds
+      end
+    end
+
     test "can decode all value types" do
       assert {:ok, [{:word, "Word", _}], ""} = ArtemisQL.decode("Word")
       assert {:ok, [{:word, "1", _}], ""} = ArtemisQL.decode("1")

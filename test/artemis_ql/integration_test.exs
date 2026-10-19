@@ -35,6 +35,126 @@ defmodule ArtemisQL.IntegrationTest do
 
   @jmap_type_codes ["s", "i", "f", "d", "b"]
 
+  describe "lists containing NULL" do
+    test "match NULL or a scalar value in any position, including grouped lists" do
+      insert_test_mode(name: "name1", int: nil)
+      insert_test_mode(name: "name2", int: 12)
+      insert_test_mode(name: "name3", int: 13)
+
+      for value <- ["NULL,12", "12,NULL", "NULL,12,NULL", "(NULL,12)", "(12,(NULL))"] do
+        assert [%{name: "name1"}, %{name: "name2"}] = execute_query("int:" <> value)
+      end
+
+      assert [%{name: "name1"}] = execute_query("int:NULL,NULL")
+      assert [%{name: "name2"}] = execute_query("name:name2 int:NULL,12")
+    end
+
+    test "match NULL alongside string patterns and comparison terms" do
+      insert_test_mode(name: "name1", str: nil, int: nil)
+      insert_test_mode(name: "name2", str: "alpha", int: 12)
+      insert_test_mode(name: "name3", str: "bravo", int: 13)
+
+      assert [%{name: "name1"}, %{name: "name2"}] = execute_query("str:NULL,alp*")
+      assert [%{name: "name1"}, %{name: "name3"}] = execute_query("int:NULL,>12")
+      assert [%{name: "name1"}, %{name: "name3"}] = execute_query("int:>12,NULL")
+    end
+
+    test "equality and exclusion lists handle NULL with SQL null semantics" do
+      insert_test_mode(name: "name1", int: nil)
+      insert_test_mode(name: "name2", int: 12)
+      insert_test_mode(name: "name3", int: 13)
+
+      for values <- ["(NULL,12)", "(12,NULL)", "((NULL,12))"] do
+        assert [%{name: "name1"}, %{name: "name2"}] = execute_query("int:=#{values}")
+        assert [%{name: "name3"}] = execute_query("int:!#{values}")
+      end
+
+      assert [%{name: "name1"}] = execute_query("int:=(NULL,NULL)")
+      assert [%{name: "name2"}, %{name: "name3"}] = execute_query("int:!(NULL,NULL)")
+
+      for {operator, expected_names} <- [
+            {">=", ["name2", "name3"]},
+            {"<=", ["name2"]},
+            {">", ["name3"]},
+            {"<", []},
+            {"~", []},
+            {"!~", ["name3"]}
+          ] do
+        assert Enum.map(execute_query("int:#{operator}(NULL,12)"), & &1.name) == expected_names
+      end
+    end
+
+    test "match NULL alongside association field values" do
+      null_model = insert_test_mode(name: "other1", int: nil)
+      matching_model = insert_test_mode(name: "other2", int: 12)
+      other_model = insert_test_mode(name: "other3", int: 13)
+      insert_test_mode(name: "name1", other_model_id: null_model.id)
+      insert_test_mode(name: "name2", other_model_id: matching_model.id)
+      insert_test_mode(name: "name3", other_model_id: other_model.id)
+
+      search_map =
+        TestModel.search_spec()
+        |> put_in([Access.key(:pair_filter), :int], {:assoc, :integer, :other_model, :int})
+        |> Map.put(:before_filter, fn query, _key, _value, assigns ->
+          {join(query, :inner, [m], other in assoc(m, :other_model), as: :other_model), assigns}
+        end)
+
+      for values <- ["NULL,12", "12,NULL", "(NULL,12)", "=(NULL,12)"] do
+        query = ArtemisQL.to_ecto_query(TestModel, "int:" <> values, search_map)
+        assert [%{name: "name1"}, %{name: "name2"}] = Repo.all(order_by(query, [m], m.name))
+      end
+
+      query = ArtemisQL.to_ecto_query(TestModel, "int:!(NULL,12)", search_map)
+      assert [%{name: "name3"}] = Repo.all(query)
+    end
+
+    test "match NULL alongside identifier and enum values" do
+      uuid = Ecto.UUID.generate()
+      ulid = Ecto.ULID.generate()
+      insert_test_mode(name: "name1", enum_i: nil, enum_s: nil)
+      insert_test_mode(name: "name2", uuid: uuid, ulid: ulid, enum_i: :i_1, enum_s: :s_1)
+      insert_test_mode(name: "name3", uuid: Ecto.UUID.generate(), ulid: Ecto.ULID.generate())
+
+      for {key, value} <- [{"uuid", uuid}, {"ulid", ulid}, {"enum_i", "i_1"}, {"enum_s", "s_1"}] do
+        for values <- ["NULL,#{value}", "#{value},NULL", "(NULL,#{value})", "=(NULL,#{value})"] do
+          assert [%{name: "name1"}, %{name: "name2"}] = execute_query("#{key}:#{values}")
+        end
+
+        assert [%{name: "name3"}] = execute_query("#{key}:!(NULL,#{value})")
+      end
+    end
+
+    test "match NULL alongside JSON field values" do
+      insert_test_mode(name: "name1", jmap: @all_nil_jmap)
+      insert_test_mode(name: "name2", jmap: %{"s" => "alpha", "i" => 12, "o" => %{"s" => "alpha"}})
+      insert_test_mode(name: "name3", jmap: %{"s" => "bravo", "i" => 13, "o" => %{"s" => "bravo"}})
+
+      for {key, value} <- [{"jmap_s", "alpha"}, {"jmap_i", "12"}, {"jmap_o_s", "alpha"}],
+          values <- ["NULL,#{value}", "#{value},NULL"] do
+        assert [%{name: "name1"}, %{name: "name2"}] = execute_query("#{key}:#{values}")
+      end
+    end
+
+    test "match a NULL array field alongside array values and patterns" do
+      insert_test_mode(name: "name1", jarr: nil)
+      insert_test_mode(name: "name2", jarr: ["alpha", "bravo"])
+      insert_test_mode(name: "name3", jarr: ["charlie", "delta"])
+
+      for values <- ["NULL,alpha", "alpha,NULL", "NULL,alp*", "NULL,NULL"] do
+        expected_names = if values == "NULL,NULL", do: ["name1"], else: ["name1", "name2"]
+        assert Enum.map(execute_query("jarr:" <> values), & &1.name) == expected_names
+      end
+    end
+
+    test "quoted NULL remains a string value" do
+      insert_test_mode(name: "name1", str: nil)
+      insert_test_mode(name: "name2", str: "NULL")
+      insert_test_mode(name: "name3", str: "alpha")
+
+      assert [%{name: "name2"}, %{name: "name3"}] = execute_query(~s(str:"NULL",alpha))
+    end
+  end
+
   describe "binary_id queries" do
     test "can query a record by its binary id" do
       model = insert_test_mode(name: "name1")

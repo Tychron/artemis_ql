@@ -96,7 +96,7 @@ defmodule ArtemisQL.Decoder do
     end
   end
 
-  defp decode_token([r_token(kind: kind) = token | tokens]) when kind in [:AND, :OR, :NOT, :NULL] do
+  defp decode_token([r_token(kind: kind) = token | tokens]) when kind in [:AND, :OR, :NOT] do
     {:ok, token, tokens}
   end
 

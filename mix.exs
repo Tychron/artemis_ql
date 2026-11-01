@@ -52,7 +52,7 @@ defmodule ArtemisQL.MixProject do
       {:postgrex, "~> 0.11", only: [:test]},
       {:ecto_enum, "~> 1.4", only: [:test]},
       {:jason, "~> 1.0", only: [:test]},
-      {:decimal, "~> 2.0"},
+      {:decimal, "~> 2.0 or ~> 3.0"},
     ]
   end
 
